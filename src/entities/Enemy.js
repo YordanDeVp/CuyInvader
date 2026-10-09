@@ -1,176 +1,198 @@
 import { Projectile } from './Projectile.js';
 
 export class Enemy {
-  constructor(slot, type, image, index) {
-    this.isBoss = type === 'boss';
-    this.width = this.isBoss ? 72 : 40;
-    this.height = this.isBoss ? 60 : 34;
+  constructor(slot, type, sprite, index, wave, layout, impostor = false) {
     this.type = type;
-    this.image = image;
+    this.isBoss = type === 'boss';
+    this.isImpostor = impostor;
+    this.isTrueForm = false;
+    this.sprite = sprite;
     this.index = index;
     this.alive = true;
-    this.maxHealth = this.isBoss ? 10 : 1;
+    this.maxHealth = this.isBoss ? 10 + (wave - 3) * 3 : 1 + Math.floor((wave - 1) / 3);
     this.health = this.maxHealth;
     this.points = this.isBoss ? 250 : type === 'chavin' ? 30 : 20;
     this.flash = 0;
+    this.revealTime = 0;
     this.aim = null;
+    this.resize(layout);
     this.setSlot(slot, true);
   }
 
-  static speedForWave(wave) {
-    return 64 * 1.1 ** (wave - 1);
+  static guardianCount(wave) { return wave >= 5 ? 5 : wave >= 3 ? 4 : 0; }
+  static speedForWave(wave) { return 64 * 1.1 ** (wave - 1); }
+
+  // La densidad crece hasta 72 tropas; la vida y la velocidad siguen aumentando.
+  static layout(wave, width, height) {
+    const mobile = width <= 640;
+    const count = Math.min(72, 36 + (wave - 1) * 4);
+    const baseSize = mobile ? 32 : 46;
+    const columns = Math.min((mobile ? 8 : 12) + Math.floor((wave - 1) / 3), Math.floor((width - baseSize * 5) / (baseSize * 1.15)));
+    const triangleRows = Math.ceil(count * 2 / columns);
+    const size = Math.floor(Math.min(baseSize, height * 0.40 / triangleRows * 0.9));
+    // En cada borde quedan exactamente 2,5 cabezas al centrar el bloque.
+    return { count, columns, size, span: width - size * 5, height: height * 0.40,
+      bossSize: mobile ? 52 : 72, top: Enemy.guardianCount(wave) ? 122 : 40,
+      bosses: Enemy.guardianCount(wave), mobile };
   }
 
-  // Se conservan los 36 puestos originales, aunque hayan caído algunos enemigos.
-  static slotsForFormation(name) {
-    const slots = [];
+  static slotsForFormation(name, layout) {
+    const { count, columns, size, span, top, height } = layout;
+    const rows = name === 'triangle' ? Math.ceil(count * 2 / columns) : Math.ceil(count / columns);
+    let rowCounts;
     if (name === 'triangle') {
-      for (let row = 1; row <= 8; row += 1) {
-        for (let column = 0; column < row; column += 1) {
-          slots.push({ x: (column - (row - 1) / 2) * 90, y: 80 + (row - 1) * 44 });
-        }
-      }
-    } else if (name === 'crescent') {
-      for (let row = 0; row < 3; row += 1) {
-        for (let column = 0; column < 12; column += 1) {
-          const unit = (column - 5.5) / 5.5;
-          slots.push({ x: (column - 5.5) * 64, y: 98 + row * 52 + (1 - Math.sqrt(1 - unit * unit)) * 210 });
+      const weight = rows * (rows + 1) / 2;
+      rowCounts = Array.from({ length: rows }, (_, row) => Math.max(1, Math.min(columns, Math.floor(count * (row + 1) / weight))));
+      let remaining = count - rowCounts.reduce((sum, n) => sum + n, 0);
+      while (remaining > 0) {
+        for (let row = rows - 1; row >= 0 && remaining > 0; row -= 1) {
+          if (rowCounts[row] < columns) { rowCounts[row] += 1; remaining -= 1; }
         }
       }
     } else {
-      for (let row = 0; row < 4; row += 1) {
-        for (let column = 0; column < 9; column += 1) slots.push({ x: (column - 4) * 78, y: 108 + row * 72 });
-      }
+      rowCounts = Array.from({ length: rows }, (_, row) => Math.min(columns, count - row * columns));
     }
+    const pitch = (span - size) / Math.max(1, columns - 1);
+    const gap = Math.min(size * 1.6, height / Math.max(1, rows - 1));
+    const slots = [];
+    rowCounts.forEach((amount, row) => {
+      for (let column = 0; column < amount; column += 1) {
+        const x = (column - (amount - 1) / 2) * pitch;
+        const unit = x / (span / 2);
+        const arc = name === 'crescent' ? (1 - Math.sqrt(Math.max(0, 1 - unit * unit))) * height * 0.45 : 0;
+        slots.push({ x, y: top + row * gap + arc });
+      }
+    });
     return slots;
   }
 
-  // Una envolvente común evita saltos laterales al ensanchar la formación.
-  static advanceFormation(formation, speed, deltaTime, canvasWidth) {
-    const left = 24 + formation.halfWidth;
-    const right = canvasWidth - 24 - formation.halfWidth;
-    const available = formation.direction > 0 ? right - formation.x : formation.x - left;
-    const distance = speed * deltaTime;
-    formation.x += formation.direction * Math.min(distance, Math.max(0, available));
-    if (distance >= available) {
-      formation.direction *= -1;
-      formation.y += 12;
-    }
+  static bossSlot(index, layout) {
+    const span = layout.span - layout.bossSize * 1.8;
+    return { x: (index / Math.max(1, layout.bosses - 1) - 0.5) * span, y: layout.bossSize * 0.85 };
   }
 
-  // La interpolación usa coordenadas locales: el grupo sigue avanzando al transformarse.
+  static advanceFormation(formation, speed, dt, canvasWidth) {
+    const left = 12 + formation.halfWidth;
+    const right = canvasWidth - 12 - formation.halfWidth;
+    const available = Math.max(0, formation.direction > 0 ? right - formation.x : formation.x - left);
+    const distance = speed * dt;
+    formation.x += formation.direction * Math.min(distance, available);
+    if (distance >= available) { formation.direction *= -1; formation.y += 8; }
+  }
+
+  resize(layout) {
+    this.width = (this.isBoss ? layout.bossSize : layout.size) * (this.isTrueForm ? 1.8 : 1);
+    this.height = this.width;
+    this.laserSpeed = layout.mobile ? 170 : 210;
+  }
+
+  // Coordenadas locales del centro: el jefe crece sin saltar de posición.
   setSlot(slot, immediate = false) {
-    this.targetX = slot.x - this.width / 2;
+    this.targetX = slot.x;
     this.targetY = slot.y;
-    if (immediate) {
-      this.offsetX = this.targetX;
-      this.offsetY = this.targetY;
-    }
+    if (immediate) { this.offsetX = slot.x; this.offsetY = slot.y; }
   }
 
-  update(deltaTime, formation) {
-    const blend = 1 - Math.exp(-4 * deltaTime);
+  update(dt, formation) {
+    const blend = 1 - Math.exp(-4 * dt);
     this.offsetX += (this.targetX - this.offsetX) * blend;
     this.offsetY += (this.targetY - this.offsetY) * blend;
-    this.x = formation.x + this.offsetX;
-    this.y = formation.y + this.offsetY;
-    this.flash = Math.max(0, this.flash - deltaTime);
+    this.x = formation.x + this.offsetX - this.width / 2;
+    this.y = formation.y + this.offsetY - this.height / 2;
+    this.flash = Math.max(0, this.flash - dt);
+    this.revealTime = Math.max(0, this.revealTime - dt);
   }
 
   takeHit() {
+    if (!this.alive || this.revealTime > 0) return 'hit';
     this.health -= 1;
     this.flash = 0.08;
-    this.alive = this.health > 0;
-  }
-
-  // La marca permanece fija durante el segundo de aviso para permitir esquivarla.
-  prepareLaser(player) {
-    if (this.isBoss && !this.aim) {
-      const box = player.hitbox;
-      this.aim = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    if (this.health > 0) return 'hit';
+    if (this.isImpostor && !this.isTrueForm) {
+      // La primera barra revela al impostor; solo su derrota definitiva cuenta.
+      this.isTrueForm = true;
+      this.maxHealth = Math.ceil(this.maxHealth * 2.2);
+      this.health = this.maxHealth;
+      this.x -= this.width * 0.4;
+      this.y -= this.height * 0.4;
+      this.width *= 1.8;
+      this.height *= 1.8;
+      this.points = 600;
+      this.revealTime = 0.9;
+      this.aim = null;
+      return 'reveal';
     }
+    this.alive = false;
+    return 'defeated';
   }
 
   get eyes() {
-    return [this.x + 23, this.x + 49].map((x) => ({ x, y: this.y + 27 }));
+    return [0.32, 0.68].map((part) => ({ x: this.x + this.width * part, y: this.y + this.height * 0.4 }));
+  }
+
+  prepareLaser(player) {
+    if (this.isBoss && this.alive && !this.aim && this.revealTime === 0) this.aim = player;
   }
 
   fireLasers() {
-    if (!this.isBoss || !this.alive || !this.aim) return [];
-    const lasers = this.eyes.map((eye) => Projectile.laser(eye.x, eye.y, this.aim.x, this.aim.y));
+    if (!this.aim || !this.alive || this.revealTime > 0) return [];
+    const speed = this.laserSpeed * (this.isTrueForm ? 1.2 : 1);
+    const lasers = this.eyes.map((eye, index) => Projectile.laser(eye.x, eye.y, this.aim, speed, (index ? 1 : -1) * 0.12));
+    if (this.isTrueForm) lasers.push(Projectile.laser(this.x + this.width / 2, this.y + this.height * 0.8, this.aim, speed));
     this.aim = null;
     return lasers;
   }
 
   draw(ctx) {
-    const x = Math.round(this.x);
-    const y = Math.round(this.y);
-    if (this.image?.complete && this.image.naturalWidth > 0) {
-      ctx.drawImage(this.image, x, y, this.width, this.height);
-    } else if (this.isBoss) {
-      // Guardianes de piedra con tocado dorado y dos ojos de energía.
-      ctx.fillStyle = '#ae8a69';
-      ctx.fillRect(x + 8, y + 12, 56, 42);
-      ctx.fillRect(x, y + 22, 8, 24);
-      ctx.fillRect(x + 64, y + 22, 8, 24);
-      ctx.fillStyle = '#e5ba68';
-      ctx.fillRect(x + 4, y + 6, 64, 10);
-      for (let i = 0; i < 5; i += 1) ctx.fillRect(x + 8 + i * 12, y, 8, 8);
-      ctx.fillRect(x + 31, y + 28, 10, 17);
-      ctx.fillStyle = '#233039';
-      ctx.fillRect(x + 16, y + 21, 15, 12);
-      ctx.fillRect(x + 42, y + 21, 15, 12);
-      ctx.fillRect(x + 21, y + 46, 30, 6);
-      ctx.fillStyle = '#e5ba68';
-      ctx.fillRect(x + 23, y + 46, 5, 12);
-      ctx.fillRect(x + 44, y + 46, 5, 12);
-    } else {
-      ctx.fillStyle = this.type === 'chavin' ? '#81c6bc' : '#d99672';
-      ctx.fillRect(x + 6, y + 4, 28, 26);
-      ctx.fillRect(x, y + 10, 6, 16);
-      ctx.fillRect(x + 34, y + 10, 6, 16);
-      ctx.fillRect(x + 10, y + 30, 20, 4);
-      ctx.fillStyle = this.type === 'chavin' ? '#bbe8d1' : '#f3c18a';
-      ctx.fillRect(x + 4, y, 32, 6);
-      ctx.fillRect(x + 18, y + 13, 4, 11);
-      ctx.fillStyle = '#172228';
-      ctx.fillRect(x + 10, y + 12, 6, 5);
-      ctx.fillRect(x + 24, y + 12, 6, 5);
-      ctx.fillRect(x + 12, y + 26, 16, 3);
-    }
+    const { x, y, width: w, height: h } = this;
+    ctx.save();
     if (this.isBoss) {
-      ctx.fillStyle = this.aim ? '#fff0ef' : '#ff547d';
-      this.eyes.forEach((eye) => ctx.fillRect(eye.x - 4, eye.y - 3, 8, 6));
+      ctx.fillStyle = this.isTrueForm ? '#ff3f912c' : '#f1ba6220';
+      ctx.fillRect(x - 4, y - 4, w + 8, h + 8);
+      ctx.strokeStyle = this.isTrueForm ? '#ff3f91' : '#e5ba68';
+      ctx.strokeRect(x - 3, y - 3, w + 6, h + 6);
+    }
+    if (this.isTrueForm) ctx.filter = 'sepia(1) saturate(5) hue-rotate(270deg)';
+    if (!this.sprite?.draw(ctx, x, y, w, h)) {
+      ctx.fillStyle = this.isTrueForm ? '#bd397e' : this.isBoss ? '#ae8a69' : this.type === 'chavin' ? '#81c6bc' : '#d99672';
+      ctx.fillRect(x + w * 0.1, y, w * 0.8, h);
+      ctx.fillRect(x, y + h * 0.2, w, h * 0.6);
+      ctx.fillStyle = '#172228';
+      ctx.fillRect(x + w * 0.2, y + h * 0.3, w * 0.18, h * 0.15);
+      ctx.fillRect(x + w * 0.62, y + h * 0.3, w * 0.18, h * 0.15);
+      ctx.fillRect(x + w * 0.25, y + h * 0.75, w * 0.5, h * 0.1);
+    }
+    ctx.filter = 'none';
+    if (this.isBoss) {
+      ctx.fillStyle = this.aim ? '#ffffff' : this.isTrueForm ? '#ff3f91' : '#ffc76a';
+      this.eyes.forEach((eye) => ctx.fillRect(eye.x - 3, eye.y - 2, 6, 4));
+    }
+    if (this.isBoss || this.maxHealth > 1) {
       ctx.fillStyle = '#25363a';
-      ctx.fillRect(x + 7, y + this.height + 4, 58, 4);
-      ctx.fillStyle = '#f1ba62';
-      ctx.fillRect(x + 7, y + this.height + 4, 58 * this.health / this.maxHealth, 4);
+      ctx.fillRect(x, y + h + 6, w, 4);
+      ctx.fillStyle = this.isTrueForm ? '#ff3f91' : '#f1ba62';
+      ctx.fillRect(x, y + h + 6, w * this.health / this.maxHealth, 4);
     }
-    if (this.flash > 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.55;
-      ctx.fillStyle = '#fff0ad';
-      ctx.fillRect(x, y, this.width, this.height);
-      ctx.restore();
+    if (this.flash > 0 || this.revealTime > 0) {
+      ctx.globalAlpha = this.revealTime > 0 ? 0.2 + Math.sin(this.revealTime * 28) * 0.15 : 0.45;
+      ctx.fillStyle = this.isTrueForm ? '#ff8ac1' : '#fff0ad';
+      ctx.fillRect(x, y, w, h);
     }
+    ctx.restore();
   }
 
-  // Guías de aviso antes de los láseres; no infligen daño.
   drawLaserWarning(ctx) {
     if (!this.aim || !this.alive) return;
+    const box = this.aim.hitbox;
     ctx.save();
     ctx.strokeStyle = '#ff547d66';
-    ctx.lineWidth = 1;
     ctx.setLineDash([5, 12]);
     for (const eye of this.eyes) {
       ctx.beginPath();
       ctx.moveTo(eye.x, eye.y);
-      ctx.lineTo(this.aim.x, this.aim.y);
+      ctx.lineTo(box.x + box.width / 2, box.y + box.height / 2);
       ctx.stroke();
     }
-    ctx.fillStyle = '#ff547d';
-    ctx.fillRect(this.aim.x - 14, this.aim.y, 28, 2);
-    ctx.fillRect(this.aim.x, this.aim.y - 14, 2, 28);
     ctx.restore();
   }
 }

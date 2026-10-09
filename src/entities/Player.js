@@ -3,11 +3,10 @@ import { Projectile } from './Projectile.js';
 export class Player {
   // El cuy y su ametralladora se desplazan como una sola entidad.
   constructor(canvasWidth, canvasHeight, image, projectileImage, pilotImage) {
-    this.width = 96;
-    this.height = 86;
+    this.x = canvasWidth / 2;
+    this.powerTime = 0;
+    this.resize(canvasWidth, canvasHeight);
     this.x = (canvasWidth - this.width) / 2;
-    this.y = canvasHeight - 114;
-    this.speed = 480;
     this.cooldown = 0;
     this.shotInterval = 0.10;
     this.muzzleFlash = 0;
@@ -20,7 +19,22 @@ export class Player {
 
   // La hitbox excluye la punta del cañón para que esquivar resulte justo.
   get hitbox() {
-    return { x: this.x + 10, y: this.y + 18, width: 76, height: 62 };
+    const scale = this.width / 96;
+    return { x: this.x + 10 * scale, y: this.y + 18 * scale, width: 76 * scale, height: 62 * scale };
+  }
+
+  // En móvil dejamos espacio para los pulgares debajo del cuy.
+  resize(width, height, bottomSpace = width <= 640 ? 155 : 28) {
+    this.width = width <= 640 ? 72 : 96;
+    this.height = this.width * 86 / 96;
+    this.y = height - this.height - bottomSpace;
+    this.speed = width <= 640 ? 330 : 480;
+    this.x = Math.max(12, Math.min(width - this.width - 12, this.x));
+  }
+
+  activatePower() {
+    this.powerTime = 8;
+    this.cooldown = 0;
   }
 
   update(deltaTime, input, canvasWidth) {
@@ -29,14 +43,16 @@ export class Player {
     this.cooldown = Math.max(0, this.cooldown - deltaTime);
     this.muzzleFlash = Math.max(0, this.muzzleFlash - deltaTime);
     this.invulnerability = Math.max(0, this.invulnerability - deltaTime);
+    this.powerTime = Math.max(0, this.powerTime - deltaTime);
   }
 
   // Los choclos salen de la boca de la ametralladora, a la derecha del asiento.
   shoot() {
-    if (this.cooldown > 1e-9) return null;
-    this.cooldown = this.shotInterval;
+    if (this.cooldown > 1e-9) return [];
+    this.cooldown = this.powerTime > 0 ? 0.065 : this.shotInterval;
     this.muzzleFlash = 0.055;
-    return new Projectile(this.x + 72, this.y + 2, this.projectileImage);
+    const angles = this.powerTime > 0 ? [-0.2, 0, 0.2] : [0];
+    return angles.map((offset) => new Projectile(this.x + this.width * 0.75, this.y + 2, this.projectileImage, { angle: -Math.PI / 2 + offset }));
   }
 
   // Una ráfaga de dos ojos no puede quitar varias vidas de un solo golpe.
@@ -49,11 +65,13 @@ export class Player {
 
   draw(ctx) {
     ctx.save();
+    ctx.translate(Math.round(this.x), Math.round(this.y));
+    ctx.scale(this.width / 96, this.width / 96);
     if (this.invulnerability > 0 && Math.floor(this.invulnerability * 12) % 2 === 0) ctx.globalAlpha = 0.4;
-    const x = Math.round(this.x);
-    const y = Math.round(this.y);
-    if (this.image?.complete && this.image.naturalWidth > 0) {
-      ctx.drawImage(this.image, x, y, this.width, this.height);
+    const x = 0;
+    const y = 0;
+    if (this.image?.draw(ctx, x, y, 96, 86)) {
+      // Admite un sprite completo del vehículo si se añade al atlas.
     } else {
       // Plataforma, orugas, asiento y soporte de la ametralladora.
       ctx.fillStyle = '#0a1119';
@@ -66,8 +84,8 @@ export class Player {
       ctx.fillRect(x + 14, y + 56, 42, 10);
       ctx.fillRect(x + 27, y + 62, 8, 9);
       ctx.fillRect(x + 64, y + 49, 9, 23);
-      if (this.pilotImage?.complete && this.pilotImage.naturalWidth > 0) {
-        ctx.drawImage(this.pilotImage, x + 16, y + 16, 44, 43);
+      if (this.pilotImage?.draw(ctx, x + 12, y + 1, 44, 61)) {
+        // El cuy de la hoja se sienta sobre la plataforma de la ametralladora.
       } else {
         // Cuy sentado: cabeza, cuerpo y patas apoyadas en la plataforma.
         ctx.fillStyle = '#bb7548';
@@ -107,6 +125,11 @@ export class Player {
       ctx.fillRect(x + 66, y - 12, 12, 14);
       ctx.fillStyle = '#fff4c0';
       ctx.fillRect(x + 70, y - 18, 4, 18);
+    }
+    if (this.powerTime > 0) {
+      ctx.strokeStyle = '#ff794b';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-3, -3, 102, 92);
     }
     ctx.restore();
   }

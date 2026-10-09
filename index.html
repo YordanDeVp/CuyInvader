@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#10191d">
   <title>Cuy Invaders · Defiende los Andes</title>
   <link rel="stylesheet" href="style.css">
@@ -17,43 +17,54 @@
       <div class="hud">
         <div><span>PUNTAJE</span><strong id="score">000000</strong></div>
         <div><span>OLEADA</span><strong id="wave">01</strong></div>
-        <div><span>VELOCIDAD</span><strong id="speed">1.00×</strong></div>
+        <div class="speed-stat"><span>VELOCIDAD</span><strong id="speed">1.00×</strong></div>
         <div><span>RESISTENCIA</span><strong id="health" aria-label="Resistencia: 3 de 3">♥♥♥</strong></div>
+        <button class="inventory" id="item" type="button" disabled aria-label="Activar jalapeño guardado, tecla Control">
+          <canvas id="item-icon" width="32" height="40" aria-hidden="true"></canvas>
+          <span><b id="item-status">VACÍO</b><small id="drop-progress">0/5 GUARDIANES</small></span>
+        </button>
         <button class="expand" id="fullscreen" type="button">AMPLIAR ⤢</button>
         <button id="pause" type="button" disabled aria-label="Pausar partida">Ⅱ</button>
       </div>
       <div class="battlebar">
         <span>FORMACIÓN <b id="formation">BLOQUE</b> <small>↻ <b id="formation-time">20s</b></small></span>
         <span class="laser-clock">LÁSER <b id="laser-time">10s</b></span>
-        <span>GUARDIANES <b id="bosses">3/3</b></span>
+        <span>GUARDIANES <b id="bosses">DESDE N.3</b> <b id="boss-phase"></b></span>
       </div>
       <div class="screen">
-        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover la ametralladora; mantén espacio para disparar choclos." aria-describedby="controls">
+        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover; espacio para disparar y Control para activar el jalapeño." aria-describedby="controls">
           Tu navegador necesita soporte para Canvas para ejecutar el juego.
         </canvas>
         <div class="overlay" id="overlay">
           <div class="start-card">
             <p class="eyebrow" id="overlay-kicker">UN CUY. UNA AMETRALLADORA.</p>
             <h2 id="overlay-title">Defiende<br>los Andes.</h2>
-            <p id="overlay-message">Lluvia de choclos. Formaciones cada 20s. Esquiva los láseres de los guardianes y protege el valle.</p>
+            <p id="overlay-message">Guardianes desde el nivel 3. Uno oculta su verdadera forma. Atrapa el jalapeño y activa tu disparo triple con Ctrl o el botón 🌶.</p>
             <button class="primary" id="play" type="button">JUGAR <span>↗</span></button>
             <small id="overlay-hint">O PRESIONA ENTER / ESPACIO</small>
           </div>
         </div>
-        <div class="screen-label" aria-hidden="true">CORDILLERA DE LOS ANDES <span>3 800 M S. N. M.</span></div>
+        <p id="reveal" class="reveal" hidden>¡IMPOSTOR REVELADO! <small>DERROTA SU VERDADERA FORMA</small></p>
+        <div class="touch-controls" aria-label="Gamepad táctil">
+          <div class="directions">
+            <button type="button" data-control="ArrowLeft" aria-label="Mover a la izquierda">←</button>
+            <button type="button" data-control="ArrowRight" aria-label="Mover a la derecha">→</button>
+          </div>
+          <div class="actions">
+            <button id="touch-power" type="button" data-control="ControlLeft" aria-label="Activar jalapeño" disabled>🌶<small>PODER</small></button>
+            <button class="fire" type="button" data-control="Space" aria-label="Disparar choclos">✦<small>FUEGO</small></button>
+          </div>
+        </div>
       </div>
+      <div class="screen-label" aria-hidden="true">CORDILLERA DE LOS ANDES <span>3 800 M S. N. M.</span></div>
       <div class="controls" id="controls">
         <span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> MOVER</span>
         <span><kbd>ESPACIO</kbd> DISPARAR</span>
+        <span><kbd>CTRL</kbd> JALAPEÑO</span>
         <span><kbd>P</kbd> PAUSA</span>
         <button id="restart" type="button">REINICIAR <kbd>R</kbd></button>
       </div>
     </section>
-    <div class="touch-controls" aria-label="Controles táctiles">
-      <button type="button" data-control="ArrowLeft" aria-label="Mover a la izquierda">←</button>
-      <button type="button" data-control="ArrowRight" aria-label="Mover a la derecha">→</button>
-      <button type="button" data-control="Space">DISPARAR ✦</button>
-    </div>
     <footer><span>CHOCLOS SIN LÍMITE. CORAJE TAMBIÉN.</span><span>CADA OLEADA, +10% DE VELOCIDAD ↗</span></footer>
     <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
     <noscript>Activa JavaScript para jugar Cuy Invaders.</noscript>
