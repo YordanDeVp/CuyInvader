@@ -7,6 +7,8 @@ const NAMES = { grid: 'BLOQUE', triangle: 'TRIÁNGULO', crescent: 'SEMILUNA' };
 const FORMATION_INTERVAL = 7;
 const LASER_INTERVAL = 10;
 
+export const GameState = Object.freeze({ READY: 'ready', PLAYING: 'playing', PAUSED: 'paused', GAME_OVER: 'over', UPGRADE_MENU: 'upgrade_menu' });
+
 // Recortes de la hoja adjunta (2752 × 1536), sin los rótulos decorativos.
 const FRAMES = {
   pilot: [87, 136, 137, 225], projectile: [91, 520, 131, 206],
@@ -66,13 +68,14 @@ export class Game {
     const ids = ['score', 'wave', 'speed', 'health', 'formation', 'formation-time', 'laser-time',
       'bosses', 'boss-phase', 'fullscreen', 'pause', 'status', 'overlay', 'overlay-kicker',
       'overlay-title', 'overlay-message', 'overlay-hint', 'play', 'restart', 'announcement',
-      'item', 'item-icon', 'item-status', 'drop-progress', 'touch-power', 'reveal', 'start-fullscreen', 'fullscreen-message'];
+      'item', 'item-icon', 'item-status', 'drop-progress', 'touch-power', 'reveal', 'start-fullscreen', 'fullscreen-message', 'damage-upgrade'];
     this.ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     this.assets = this.loadAssets();
     this.input = new InputHandler((code) => this.handleAction(code));
     this.controller = new AbortController();
     const options = { signal: this.controller.signal };
-    this.ui.play.addEventListener('click', () => this.play(), options);
+    this.ui.play.addEventListener('click', () => this.state === GameState.UPGRADE_MENU ? this.applyUpgrade('speed') : this.play(), options);
+    this.ui['damage-upgrade']?.addEventListener('click', () => this.applyUpgrade('damage'), options);
     // Un HTML anterior puede seguir en caché unos segundos durante el despliegue.
     this.ui['start-fullscreen']?.addEventListener('click', () => this.playFullscreen(), options);
     this.ui.pause.addEventListener('click', () => this.togglePause(), options);
@@ -108,10 +111,13 @@ export class Game {
 
   // Cambiamos las coordenadas reales del mundo; no estiramos un canvas horizontal.
   resize() {
-    const mobile = window.matchMedia('(max-width: 640px)').matches;
+    const mobile = window.matchMedia('(max-width: 760px), (pointer: coarse) and (orientation: portrait)').matches;
     const width = mobile ? 600 : 1200;
     const visibleHeight = window.visualViewport?.height ?? window.innerHeight;
-    const height = mobile ? Math.round(Math.max(900, Math.min(1200, (visibleHeight - (document.fullscreenElement ? 110 : 166)) / window.innerWidth * 600))) : 800;
+    // Reserva espacio real para HUD, etiqueta y gamepad que ahora vive bajo el canvas.
+    const viewWidth = window.visualViewport?.width ?? window.innerWidth;
+    const reservedUI = document.fullscreenElement ? 300 : 305;
+    const height = mobile ? Math.round(Math.max(660, Math.min(1200, (visibleHeight - reservedUI) / Math.max(1, viewWidth) * 600))) : 800;
     const oldWidth = this.canvas.width;
     const oldHeight = this.canvas.height;
     if (oldWidth === width && oldHeight === height && this.layout) return;
@@ -153,6 +159,8 @@ export class Game {
     this.minions = [];
     this.inventory = null;
     this.guardiansDefeated = 0;
+    this.upgradeOfferedWave = 0;
+    this.pendingWave = null;
     this.formationIndex = 0;
     this.formationElapsed = 0;
     this.laserElapsed = 0;
@@ -205,6 +213,18 @@ export class Game {
   }
 
   restart() { this.reset(); this.canvas.focus({ preventScroll: true }); }
+
+  applyUpgrade(kind) {
+    if (this.state !== GameState.UPGRADE_MENU || !this.pendingWave) return;
+    if (kind === 'speed') this.player.upgradeSpeed();
+    else if (kind === 'damage') this.player.projectileDamage += 1;
+    else return;
+    this.upgradeOfferedWave = this.pendingWave;
+    this.pendingWave = null;
+    this.state = 'playing';
+    this.spawnWave();
+    this.canvas.focus({ preventScroll: true });
+  }
 
   pause() {
     this.input.clear();
@@ -357,7 +377,7 @@ export class Game {
       for (const enemy of targets) {
         if (!enemy.alive || !Game.overlaps(projectile, enemy)) continue;
         projectile.active = false;
-        const result = enemy.takeHit();
+        const result = enemy.takeHit(projectile.damage);
         if (result === 'defeated') this.defeatEnemy(enemy);
         if (result === 'reveal') {
           this.revealTime = 3;
@@ -397,7 +417,18 @@ export class Game {
       this.endGame('Las reliquias llegaron al valle.');
       return;
     }
-    if (!this.enemies.length && !this.minions.length) { this.projectiles = []; this.spawnWave(); }
+    if (!this.enemies.length && !this.minions.length) {
+      this.projectiles = [];
+      const nextWave = this.wave + 1;
+      // Ofrece una mejora justo antes de oleadas donde sube la vida de la tropa.
+      if (nextWave >= 4 && (nextWave - 1) % 3 === 0 && this.upgradeOfferedWave !== nextWave) {
+        this.pendingWave = nextWave;
+        this.state = GameState.UPGRADE_MENU;
+        this.syncUI();
+        return;
+      }
+      this.spawnWave();
+    }
     this.syncHUD();
   }
 
@@ -436,16 +467,18 @@ export class Game {
 
   syncUI() {
     this.syncHUD();
-    this.ui.status.textContent = { ready: 'EN ESPERA', playing: 'EN EL VALLE', paused: 'EN PAUSA', over: 'FIN DE PARTIDA' }[this.state];
+    this.ui.status.textContent = { ready: 'EN ESPERA', playing: 'EN EL VALLE', paused: 'EN PAUSA', over: 'FIN DE PARTIDA', [GameState.UPGRADE_MENU]: 'MEJORA' }[this.state];
     this.ui.pause.disabled = !['playing', 'paused'].includes(this.state);
     this.ui.pause.textContent = this.state === 'paused' ? '▶' : 'Ⅱ';
     this.ui.pause.setAttribute('aria-label', this.state === 'paused' ? 'Reanudar partida' : 'Pausar partida');
     this.ui.overlay.hidden = this.state === 'playing';
-    if (this.ui['start-fullscreen']) this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement);
+    if (this.ui['start-fullscreen']) this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement) || !['ready', 'over'].includes(this.state);
+    if (this.ui['damage-upgrade']) this.ui['damage-upgrade'].hidden = this.state !== GameState.UPGRADE_MENU;
     const copy = {
       ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Formaciones cada 7s. Esquiva los láseres y activa choclos en llamas con el jalapeño. Desde el nivel 7, el impostor oscuro puede invocar secuaces.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
       over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER / ESPACIO'],
+      [GameState.UPGRADE_MENU]: ['DESCANSO ENTRE OLEADAS', '¡Mejora tu equipo!', 'La oleada ' + this.pendingWave + ' tendrá más resistencia. Elige una mejora para continuar.', '+ VELOCIDAD (+20 %)', 'ELIGE UNA MEJORA PARA SEGUIR'],
     }[this.state];
     if (copy) {
       this.ui['overlay-kicker'].textContent = copy[0];
@@ -453,6 +486,7 @@ export class Game {
       this.ui['overlay-message'].textContent = copy[2];
       this.ui.play.textContent = copy[3] + ' ↗';
       this.ui['overlay-hint'].textContent = copy[4];
+      if (this.state === GameState.UPGRADE_MENU) this.ui['damage-upgrade'].hidden = false;
     }
   }
 

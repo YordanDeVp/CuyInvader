@@ -41,21 +41,22 @@
             <h2 id="overlay-title">Defiende<br>los Andes.</h2>
             <p id="overlay-message">Formaciones cada 7s. Esquiva los láseres y activa choclos en llamas con el jalapeño. Desde el nivel 7, el impostor oscuro puede invocar secuaces.</p>
             <button class="primary" id="play" type="button">JUGAR <span>↗</span></button>
+            <button class="upgrade-choice" id="damage-upgrade" type="button" hidden>+ DAÑO AL CHOCLO (+1)</button>
             <button class="fullscreen-start" id="start-fullscreen" type="button">JUGAR EN PANTALLA COMPLETA ⤢</button>
             <p id="fullscreen-message" class="fullscreen-message" role="status" hidden></p>
             <small id="overlay-hint">O PRESIONA ENTER / ESPACIO</small>
           </div>
         </div>
         <p id="reveal" class="reveal" hidden>¡IMPOSTOR REVELADO! <small>DERROTA SU VERDADERA FORMA</small></p>
-        <div class="touch-controls" aria-label="Gamepad táctil">
-          <div class="directions">
-            <button type="button" data-control="ArrowLeft" aria-label="Mover a la izquierda">←</button>
-            <button type="button" data-control="ArrowRight" aria-label="Mover a la derecha">→</button>
-          </div>
-          <div class="actions">
-            <button id="touch-power" type="button" data-control="ControlLeft" aria-label="Activar jalapeño" disabled>🌶<small>PODER</small></button>
-            <button class="fire" type="button" data-control="Space" aria-label="Disparar choclos">✦<small>FUEGO</small></button>
-          </div>
+      </div>
+      <div class="touch-controls" aria-label="Gamepad táctil">
+        <div class="directions">
+          <button type="button" data-control="ArrowLeft" aria-label="Mover a la izquierda">←<small>IZQUIERDA</small></button>
+          <button type="button" data-control="ArrowRight" aria-label="Mover a la derecha">→<small>DERECHA</small></button>
+        </div>
+        <div class="actions">
+          <button id="touch-power" type="button" data-control="ControlLeft" aria-label="Activar jalapeño" disabled>🌶<small>PODER</small></button>
+          <button class="fire" type="button" data-control="Space" aria-label="Disparar choclos">✦<small>FUEGO</small></button>
         </div>
       </div>
       <div class="screen-label" aria-hidden="true">CORDILLERA DE LOS ANDES <span>3 800 M S. N. M.</span></div>

@@ -14,7 +14,7 @@ export class Enemy {
     this.sprite = sprite;
     this.index = index;
     this.alive = true;
-    this.maxHealth = this.isBoss ? 10 + (wave - 3) * 3 : 1 + Math.floor((wave - 1) / 3);
+    this.maxHealth = this.isBoss ? 10 + (wave - 3) * 3 : Enemy.troopHealthForWave(wave);
     this.health = this.maxHealth;
     this.points = this.isBoss ? 250 : type === 'chavin' ? 30 : 20;
     this.flash = 0;
@@ -26,6 +26,7 @@ export class Enemy {
 
   static guardianCount(wave) { return wave >= 5 ? 5 : wave >= 3 ? 4 : 0; }
   static speedForWave(wave) { return 64 * 1.1 ** (wave - 1); }
+  static troopHealthForWave(wave) { return 1 + Math.floor((wave - 1) / 3); }
 
   // La densidad crece hasta 72 tropas; la vida y la velocidad siguen aumentando.
   static layout(wave, width, height) {
@@ -86,7 +87,7 @@ export class Enemy {
   }
 
   resize(layout) {
-    this.width = (this.isBoss ? layout.bossSize : layout.size) * (this.isTrueForm ? 1.8 : 1);
+    this.width = (this.isBoss ? layout.bossSize : layout.size) * (this.isTrueForm ? 1.8 : 1) * (this.sizeMultiplier ?? 1);
     this.height = this.width;
     this.laserSpeed = layout.mobile ? 170 : 210;
   }
@@ -116,9 +117,9 @@ export class Enemy {
     return true;
   }
 
-  takeHit() {
+  takeHit(damage = 1) {
     if (!this.alive || this.revealTime > 0) return 'hit';
-    this.health -= 1;
+    this.health -= damage;
     this.flash = 0.08;
     if (this.health > 0) return 'hit';
     if (this.isImpostor && !this.isTrueForm) {
@@ -166,11 +167,15 @@ export class Enemy {
       ctx.strokeStyle = this.isTrueForm ? '#d63222' : '#e5ba68';
       ctx.strokeRect(x - 3, y - 3, w + 6, h + 6);
     }
-    if (this.isTrueForm) ctx.filter = 'grayscale(1) brightness(0.38) contrast(1.5)';
+    if (this.isTrueForm) ctx.filter = 'brightness(0.82) contrast(1.28) sepia(0.24) saturate(1.45) hue-rotate(326deg)';
     if (!this.sprite?.draw(ctx, x, y, w, h)) {
-      ctx.fillStyle = this.isTrueForm ? '#191619' : this.isBoss ? '#ae8a69' : this.type === 'chavin' ? '#81c6bc' : '#d99672';
+      ctx.fillStyle = this.isTrueForm ? '#572437' : this.isBoss ? '#ae8a69' : this.type === 'chavin' ? '#81c6bc' : '#d99672';
       ctx.fillRect(x + w * 0.1, y, w * 0.8, h);
       ctx.fillRect(x, y + h * 0.2, w, h * 0.6);
+      if (this.isTrueForm) {
+        ctx.fillStyle = '#e04b58';
+        ctx.fillRect(x + w * 0.14, y + h * 0.78, w * 0.72, Math.max(3, h * 0.06));
+      }
       ctx.fillStyle = '#172228';
       ctx.fillRect(x + w * 0.2, y + h * 0.3, w * 0.18, h * 0.15);
       ctx.fillRect(x + w * 0.62, y + h * 0.3, w * 0.18, h * 0.15);
@@ -217,14 +222,17 @@ export class Minion extends Enemy {
     super({ x: 0, y: 0 }, 'minion', sprite, 0, wave, layout);
     this.x = x;
     this.y = y;
-    this.maxHealth = 1 + Math.floor((wave - 7) / 4);
+    const progression = Math.max(0, wave - 7);
+    this.sizeMultiplier = Math.min(2.2, 1 + progression * 0.08);
+    this.maxHealth = 1 + Math.floor(progression / 2);
     this.health = this.maxHealth;
     this.points = 15;
+    this.resize(layout);
   }
 
   resize(layout) {
     super.resize(layout);
-    this.width *= 0.7;
+    this.width *= 0.7 * (this.sizeMultiplier ?? 1);
     this.height = this.width;
     this.speed = layout.mobile ? 90 : 110;
   }

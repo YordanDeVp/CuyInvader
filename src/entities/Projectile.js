@@ -9,8 +9,11 @@ export class Projectile {
     this.sprite = sprite;
     this.target = options.target;
     this.fiery = Boolean(options.fiery);
+    this.damage = options.damage ?? 1;
     this.age = 0;
-    this.turnRate = options.turnRate ?? 1.25;
+    // Velocidad angular en radianes por segundo; limita los giros bruscos.
+    this.turnRate = options.turnRate ?? 0.72;
+    this.blindspotRadius = options.blindspotRadius ?? 110;
     this.angle = options.angle ?? -Math.PI / 2;
     if (this.team === 'enemy') this.angle = Projectile.downwardAngle(this.angle);
     this.active = true;
@@ -27,9 +30,8 @@ export class Projectile {
   }
 
   static laser(x, y, target, speed = 210, spread = 0) {
-    const box = target.hitbox;
-    const angle = Math.atan2(box.y + box.height / 2 - y, box.x + box.width / 2 - x) + spread;
-    return new Projectile(x, y, null, { team: 'enemy', target, speed, angle });
+    // Parte casi vertical y luego corrige poco a poco; evita apuntar con un giro instantáneo.
+    return new Projectile(x, y, null, { team: 'enemy', target, speed, angle: Math.PI / 2 + spread });
   }
 
   // Nunca permite invertir la marcha ni quedarse volando horizontalmente.
@@ -43,6 +45,13 @@ export class Projectile {
     this.age += dt;
     // Al llegar a la altura del cuy perdemos el objetivo de forma irreversible.
     if (this.target && (this.target.health <= 0 || centerY >= this.target.hitbox.y)) this.target = null;
+    if (this.target) {
+      const box = this.target.hitbox;
+      const dx = box.x + box.width / 2 - centerX;
+      const dy = box.y + box.height / 2 - centerY;
+      // Punto ciego: dentro de este radio conserva el último rumbo y deja de seguir.
+      if (Math.hypot(dx, dy) <= this.blindspotRadius) this.target = null;
+    }
     if (this.target && this.target.health > 0) {
       // Solo corrige el rumbo durante la aproximación, siempre hacia abajo.
       const box = this.target.hitbox;

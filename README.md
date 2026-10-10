@@ -29,19 +29,20 @@ Abre [http://localhost:8000](http://localhost:8000) en el navegador. En VS Code 
 | Iniciar en pantalla completa | **Jugar en pantalla completa** en el menú |
 | Ampliar la pantalla durante la partida | Botón **Ampliar** del juego |
 
-En móviles el mundo cambia a formato vertical y los botones superpuestos permiten moverse, disparar y activar el jalapeño con varios dedos a la vez. El botón de pantalla completa solicita ocultar la interfaz del navegador antes de iniciar. Si el navegador no admite la API o rechaza la solicitud, el menú muestra un aviso y permite usar **Jugar**. Al girar el dispositivo la partida se pausa y conserva su progreso.
+En móviles el mundo cambia a formato vertical. El gamepad de cuatro botones aparece en una franja debajo del canvas para que los controles no cubran la partida. El botón de pantalla completa solicita ocultar la interfaz del navegador antes de iniciar. Si el navegador no admite la API o rechaza la solicitud, el menú muestra un aviso y permite usar **Jugar**. Al girar el dispositivo la partida se pausa y conserva su progreso.
 
 ## Cómo se juega
 
 - Las tropas comienzan con 36 enemigos y aumentan en 4 por oleada hasta 72. Su vida es `1 + floor((oleada - 1) / 3)`; los márgenes iniciales equivalen a 2,5 cabezas por lado.
 - Aparecen cuatro guardianes desde la oleada 3 y cinco desde la 5. Tienen `10 + 3 × (oleada - 3)` puntos de vida.
 - Un guardián aleatorio de cada oleada es un impostor. Al agotar su primera barra crece a 1,8 veces su tamaño, revela una forma oscura con ojos y bordes rojos y recupera `ceil(vida inicial × 2,2)` puntos de vida. Su derrota definitiva vale 600 puntos.
-- Desde la oleada 7, si el impostor sobrevive 12 segundos tras revelarse, invoca cuatro secuaces una sola vez. Descienden hacia el cuy, pueden destruirse con choclos y causan daño por contacto. No cuentan como guardianes para el jalapeño. La oleada termina cuando no quedan tropas, guardianes ni secuaces.
+- Desde la oleada 7, si el impostor sobrevive 12 segundos tras revelarse, invoca cuatro secuaces una sola vez. Descienden hacia el cuy, pueden destruirse con choclos y causan daño por contacto. Su tamaño sube un 8 % por oleada hasta el límite de 2,2×; ganan un punto de vida cada dos oleadas. No cuentan como guardianes para el jalapeño. La oleada termina cuando no quedan tropas, guardianes ni secuaces.
 - La formación cambia suavemente cada **7 segundos** entre **bloque**, **triángulo** y **semiluna**, conservando el reloj entre oleadas y sin contar las pausas.
-- Cada **10 segundos** los guardianes disparan dos láseres teledirigidos (tres para el impostor revelado), con un segundo de aviso. Los láseres siempre avanzan hacia abajo y dejan de rastrear definitivamente cuando su centro alcanza la parte superior de la hitbox del cuy. Después conservan su rumbo hasta impactar o salir del lienzo.
+- Cada **10 segundos** los guardianes disparan dos láseres teledirigidos (tres para el impostor revelado), con un segundo de aviso. Su giro se limita a 0,72 radianes por segundo; al entrar en un radio de 110 unidades o alcanzar la altura del cuy, dejan de rastrear y conservan el rumbo hasta impactar o salir del lienzo.
 - Cada cinco guardianes derrotados en total cae un jalapeño. Atrápalo para guardarlo en el inventario; pulsa Ctrl o el botón 🌶 para activar ocho segundos de disparo triple y rápido de **choclos en llamas**, con aura de fuego. No se activa al recogerlo. La primera fase del impostor no cuenta como una derrota.
 - Tienes tres puntos de resistencia. Cada impacto resta uno y concede un instante de invulnerabilidad.
-- Al despejar una oleada comienza la siguiente de inmediato. La formación enemiga se mueve un 10 % más rápido en cada oleada.
+- Al despejar una oleada comienza la siguiente de inmediato, salvo cuando toca elegir una mejora. La formación enemiga se mueve un 10 % más rápido en cada oleada.
+- Antes de las oleadas **4, 7, 10…**, cuando aumenta la vida de las tropas, el juego ofrece una mejora: **+20 % de velocidad** del cuy o **+1 de daño** por choclo. La partida continúa tras elegir una.
 - Si los enemigos alcanzan el valle o te quedas sin resistencia, termina la partida.
 
 ## Estructura

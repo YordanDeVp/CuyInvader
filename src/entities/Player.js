@@ -5,6 +5,8 @@ export class Player {
   constructor(canvasWidth, canvasHeight, image, projectileImage, pilotImage) {
     this.x = canvasWidth / 2;
     this.powerTime = 0;
+    this.speedMultiplier = 1;
+    this.projectileDamage = 1;
     this.resize(canvasWidth, canvasHeight);
     this.x = (canvasWidth - this.width) / 2;
     this.cooldown = 0;
@@ -28,13 +30,18 @@ export class Player {
     this.width = width <= 640 ? 72 : 96;
     this.height = this.width * 86 / 96;
     this.y = height - this.height - bottomSpace;
-    this.speed = width <= 640 ? 330 : 480;
+    this.speed = (width <= 640 ? 330 : 480) * this.speedMultiplier;
     this.x = Math.max(12, Math.min(width - this.width - 12, this.x));
   }
 
   activatePower() {
     this.powerTime = 8;
     this.cooldown = 0;
+  }
+
+  upgradeSpeed() {
+    this.speedMultiplier *= 1.2;
+    this.speed = (this.width <= 72 ? 330 : 480) * this.speedMultiplier;
   }
 
   update(deltaTime, input, canvasWidth) {
@@ -54,6 +61,7 @@ export class Player {
     const angles = this.powerTime > 0 ? [-0.2, 0, 0.2] : [0];
     return angles.map((offset) => new Projectile(this.x + this.width * 0.75, this.y + 2, this.projectileImage, {
       angle: -Math.PI / 2 + offset, fiery: this.powerTime > 0,
+      damage: this.projectileDamage,
     }));
   }
 

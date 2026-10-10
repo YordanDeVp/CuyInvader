@@ -45,6 +45,7 @@ canvas { display: block; image-rendering: pixelated; }
 h2 { white-space: pre-line; font-family: system-ui, sans-serif; font-size: clamp(30px, 5vw, 47px); letter-spacing: -2px; line-height: 1.02; margin: 18px 0; }
 .start-card p:not(.eyebrow) { color: #a8b8b7; font-size: 12px; line-height: 1.7; margin-bottom: 20px; }
 .primary { display: flex; justify-content: space-between; width: 100%; border: 0; padding: 15px 18px; background: #f1ba62; color: #172022; font-weight: bold; letter-spacing: 2px; }
+.upgrade-choice { display: block; width: 100%; min-height: 48px; margin-top: 9px; padding: 10px; border: 1px solid #d78282; background: #d6322218; color: #ffd3cb; font-size: 10px; font-weight: bold; letter-spacing: .5px; }
 .fullscreen-start { display: block; width: 100%; min-height: 48px; margin-top: 10px; padding: 10px; border: 1px solid #81dec3; background: #81dec315; color: #b4eddc; font-size: 10px; font-weight: bold; line-height: 1.5; }
 .start-card .fullscreen-message { color: #ffc76a; font-size: 10px; margin: 10px 0 0; }
 .start-card small { display: block; margin-top: 15px; text-align: center; color: #a8b8b7; font-size: 9px; }
@@ -55,16 +56,15 @@ kbd { display: inline-block; font: inherit; border: 1px solid #506060; padding: 
 footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 8px; color: #879b9e; font-size: 8px; line-height: 1.7; }
 .reveal { position: absolute; z-index: 2; top: 36%; left: 50%; transform: translateX(-50%); width: max-content; max-width: 90%; padding: 12px 18px; background: #160b0bf0; border: 1px solid #d63222; color: #ffb19b; text-align: center; font-size: clamp(12px, 2vw, 20px); pointer-events: none; }
 .reveal small { display: block; margin-top: 6px; font-size: 9px; }
-/* Controles sobre el canvas, con una franja libre bajo el jugador para los dedos. */
-.touch-controls { display: none; position: absolute; z-index: 3; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; justify-content: space-between; align-items: end; pointer-events: none; }
-.touch-controls > div { display: flex; gap: 10px; align-items: end; }
-.touch-controls button { pointer-events: auto; min-width: 52px; min-height: 56px; border: 1px solid #a2bdbb77; border-radius: 14px; background: #29404666; color: #eae5d5; font-size: 26px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* El gamepad móvil ocupa su propia franja y nunca cubre la zona de juego. */
+.touch-controls { display: none; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; border-top: 1px solid #354247; background: #121e23; }
+.touch-controls > div { display: flex; min-width: 0; gap: 10px; }
+.touch-controls button { flex: 1; min-width: 0; min-height: 64px; border: 1px solid #a2bdbb77; border-radius: 14px; background: #294046; color: #eae5d5; font-size: 26px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .touch-controls small { display: block; font-size: 8px; margin-top: 3px; }
-.touch-controls .fire { min-width: 68px; min-height: 72px; color: #ffd179; border-color: #f1ba6277; }
-.touch-controls .pressed { background: #81dec366; border-color: #81dec3; }
-.touch-controls button:disabled { pointer-events: none; }
+.touch-controls .fire { min-height: 70px; color: #ffd179; border-color: #f1ba6277; background: #44341f; }
+.touch-controls .pressed { background: #397260; border-color: #81dec3; }
+.touch-controls button:disabled { opacity: .42; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-@media (pointer: coarse) { .touch-controls { display: flex; } }
 .arcade:fullscreen { width: 100%; padding: 4px; display: grid; place-content: center; background: #10191d; }
 .arcade:fullscreen .masthead, .arcade:fullscreen footer { display: none; }
 .arcade:fullscreen .cabinet { width: min(calc(100vw - 8px), calc((100dvh - 156px) * 1.5)); }
@@ -88,7 +88,6 @@ footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 8
   .battlebar { font-size: 8px; padding: 6px 9px; gap: 5px; }
   .battlebar small { margin-left: 2px; }
   .screen { border: 0; }
-  .touch-controls { display: flex; }
   .screen-label { padding: 6px 10px; font-size: 7px; }
   .controls { padding: 0 10px 6px; justify-content: end; }
   .controls > span { display: none; }
@@ -96,4 +95,30 @@ footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 8
   .start-card { max-width: 310px; padding: 20px; }
   h2 { font-size: 38px; margin: 12px 0; }
   .start-card p:not(.eyebrow) { font-size: 11px; }
+}
+
+/* En vertical, el canvas mantiene su proporción y los cuatro botones quedan debajo. */
+@media (max-width: 760px), (pointer: coarse) and (orientation: portrait) {
+  body { display: block; min-height: 100svh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); background: #0c151c; }
+  .arcade { width: 100%; min-height: 100svh; }
+  .masthead .eyebrow, .status, h1 i, footer, .speed-stat, .hud .expand { display: none; }
+  .masthead { padding: 10px 10px 6px; margin: 0; }
+  h1 { font-size: 22px; }
+  .cabinet { display: flex; flex-direction: column; width: 100%; border: 0; padding: 0; background: transparent; box-shadow: none; }
+  .hud { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; }
+  .hud .inventory { grid-column: 4; grid-row: 1; }
+  .hud #pause { grid-column: 5; grid-row: 1; }
+  .battlebar { min-height: 30px; }
+  .screen { flex: none; width: 100%; border: 0; }
+  #game { width: 100%; height: auto; max-height: none; }
+  .touch-controls { display: grid; grid-template-columns: 1fr 1fr; width: 100%; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 12px; }
+  .touch-controls > div { gap: 10px; }
+  .touch-controls button { min-height: clamp(58px, 9vh, 76px); font-size: clamp(23px, 7vw, 32px); }
+  .touch-controls .fire { min-height: clamp(58px, 9vh, 76px); }
+  .screen-label { min-height: 22px; }
+  .overlay { overflow: auto; }
+  .start-card { max-height: 100%; overflow-y: auto; }
+  .controls { padding-bottom: 6px; }
+  .arcade:fullscreen { display: flex; flex-direction: column; justify-content: flex-start; min-height: 100dvh; height: 100dvh; overflow: hidden; padding: 0; }
+  .arcade:fullscreen .cabinet { width: 100%; }
 }
