@@ -200,7 +200,9 @@ export class Game {
 
   handleAction(code) {
     if (['ControlLeft', 'ControlRight'].includes(code)) this.activateJalapeno();
-    else if (['Enter', 'Space'].includes(code) && ['ready', 'over'].includes(this.state)) this.play();
+    // El botón táctil Fuego envía Space: tras perder no debe reiniciar la partida.
+    else if (code === 'Enter' && ['ready', 'over'].includes(this.state)) this.play();
+    else if (code === 'Space' && this.state === 'ready') this.play();
     else if (['KeyP', 'Escape', 'Enter'].includes(code)) this.togglePause();
     else if (code === 'KeyR') this.restart();
   }
@@ -477,7 +479,7 @@ export class Game {
     const copy = {
       ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Formaciones cada 7s. Esquiva los láseres y activa choclos en llamas con el jalapeño. Desde el nivel 7, el impostor oscuro puede invocar secuaces.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
-      over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER / ESPACIO'],
+      over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER'],
       [GameState.UPGRADE_MENU]: ['DESCANSO ENTRE OLEADAS', '¡Mejora tu equipo!', 'La oleada ' + this.pendingWave + ' tendrá más resistencia. Elige una mejora para continuar.', '+ VELOCIDAD (+20 %)', 'ELIGE UNA MEJORA PARA SEGUIR'],
     }[this.state];
     if (copy) {
