@@ -124,8 +124,9 @@ export class Game {
     this.canvas.width = width;
     this.canvas.height = height;
     this.ctx.imageSmoothingEnabled = false;
-    const touch = mobile || window.matchMedia('(pointer: coarse)').matches;
-    this.bottomSpace = touch ? Math.max(155, 100 * width / Math.max(1, this.canvas.clientWidth)) : 28;
+    // Los botones ya tienen su franja DOM; reservarla de nuevo dentro del
+    // canvas adelantaba el límite de derrota hasta 155 px en móviles.
+    this.bottomSpace = 28;
     if (!this.player) return;
     this.pause();
     this.player.x *= width / oldWidth;
@@ -178,7 +179,7 @@ export class Game {
     this.wave += 1;
     this.enemySpeed = Enemy.speedForWave(this.wave);
     this.layout = Enemy.layout(this.wave, this.canvas.width, this.canvas.height);
-    this.formation = { x: this.canvas.width / 2, y: 36, direction: this.wave % 2 ? 1 : -1, halfWidth: this.layout.span / 2 };
+    this.formation = { x: this.canvas.width / 2, y: 36, direction: this.wave % 2 ? 1 : -1, halfWidth: this.layout.span / 2, descentElapsed: 0 };
     this.enemies = Enemy.slotsForFormation(FORMATIONS[this.formationIndex], this.layout).map((slot, index) => {
       const type = index % 2 ? 'moche' : 'chavin';
       return new Enemy(slot, type, this.assets[type], index, this.wave, this.layout);

@@ -25,8 +25,8 @@ export class Player {
     return { x: this.x + 10 * scale, y: this.y + 18 * scale, width: 76 * scale, height: 62 * scale };
   }
 
-  // En móvil dejamos espacio para los pulgares debajo del cuy.
-  resize(width, height, bottomSpace = width <= 640 ? 155 : 28) {
+  // El gamepad está fuera del canvas: dejamos solo el margen del vehículo.
+  resize(width, height, bottomSpace = 28) {
     this.width = width <= 640 ? 72 : 96;
     this.height = this.width * 86 / 96;
     this.y = height - this.height - bottomSpace;

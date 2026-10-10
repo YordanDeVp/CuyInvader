@@ -1,6 +1,7 @@
 import { Projectile } from './Projectile.js';
 
 const MINION_DELAY = 12;
+const DESCENT_INTERVAL = 3;
 
 export class Enemy {
   constructor(slot, type, sprite, index, wave, layout, impostor = false) {
@@ -69,6 +70,13 @@ export class Enemy {
         slots.push({ x, y: top + row * gap + arc });
       }
     });
+    // Las formas comparten la misma franja vertical. Antes, el triángulo
+    // ganaba hasta 147 px hacia el valle y podía causar una derrota al cambiar.
+    const minY = Math.min(...slots.map((slot) => slot.y));
+    const maxY = Math.max(...slots.map((slot) => slot.y));
+    for (const slot of slots) {
+      slot.y = top + (maxY > minY ? (slot.y - minY) / (maxY - minY) * height : height);
+    }
     return slots;
   }
 
@@ -78,12 +86,22 @@ export class Enemy {
   }
 
   static advanceFormation(formation, speed, dt, canvasWidth) {
+    if (dt <= 0 || speed <= 0) return;
+    // El +10 % afecta al movimiento lateral. Los márgenes estrechos no deben
+    // multiplicar el descenso: como máximo un escalón cada tres segundos.
+    formation.descentElapsed = Math.min(DESCENT_INTERVAL, (formation.descentElapsed ?? 0) + dt);
     const left = 12 + formation.halfWidth;
     const right = canvasWidth - 12 - formation.halfWidth;
     const available = Math.max(0, formation.direction > 0 ? right - formation.x : formation.x - left);
     const distance = speed * dt;
     formation.x += formation.direction * Math.min(distance, available);
-    if (distance >= available) { formation.direction *= -1; formation.y += 8; }
+    if (distance >= available) {
+      formation.direction *= -1;
+      if (formation.descentElapsed + 1e-9 >= DESCENT_INTERVAL) {
+        formation.y += 8;
+        formation.descentElapsed = 0;
+      }
+    }
   }
 
   resize(layout) {
