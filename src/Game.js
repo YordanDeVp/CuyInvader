@@ -73,7 +73,8 @@ export class Game {
     this.controller = new AbortController();
     const options = { signal: this.controller.signal };
     this.ui.play.addEventListener('click', () => this.play(), options);
-    this.ui['start-fullscreen'].addEventListener('click', () => this.playFullscreen(), options);
+    // Un HTML anterior puede seguir en caché unos segundos durante el despliegue.
+    this.ui['start-fullscreen']?.addEventListener('click', () => this.playFullscreen(), options);
     this.ui.pause.addEventListener('click', () => this.togglePause(), options);
     this.ui.restart.addEventListener('click', () => this.restart(), options);
     this.ui.fullscreen.addEventListener('click', () => this.toggleFullscreen(), options);
@@ -440,7 +441,7 @@ export class Game {
     this.ui.pause.textContent = this.state === 'paused' ? '▶' : 'Ⅱ';
     this.ui.pause.setAttribute('aria-label', this.state === 'paused' ? 'Reanudar partida' : 'Pausar partida');
     this.ui.overlay.hidden = this.state === 'playing';
-    this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement);
+    if (this.ui['start-fullscreen']) this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement);
     const copy = {
       ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Formaciones cada 7s. Esquiva los láseres y activa choclos en llamas con el jalapeño. Desde el nivel 7, el impostor oscuro puede invocar secuaces.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
