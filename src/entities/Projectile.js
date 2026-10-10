@@ -8,12 +8,14 @@ export class Projectile {
     this.y = y - this.height / 2;
     this.sprite = sprite;
     this.target = options.target;
+    this.isHoming = this.team === 'enemy' && Boolean(this.target);
+    this.homingDuration = options.homingDuration ?? 2;
+    this.homingElapsed = 0;
     this.fiery = Boolean(options.fiery);
     this.damage = options.damage ?? 1;
     this.age = 0;
     // Velocidad angular en radianes por segundo; limita los giros bruscos.
     this.turnRate = options.turnRate ?? 0.72;
-    this.blindspotRadius = options.blindspotRadius ?? 110;
     this.angle = options.angle ?? -Math.PI / 2;
     if (this.team === 'enemy') this.angle = Projectile.downwardAngle(this.angle);
     this.active = true;
@@ -43,25 +45,25 @@ export class Projectile {
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
     this.age += dt;
-    // Al llegar a la altura del cuy perdemos el objetivo de forma irreversible.
-    if (this.target && (this.target.health <= 0 || centerY >= this.target.hitbox.y)) this.target = null;
-    if (this.target) {
-      const box = this.target.hitbox;
-      const dx = box.x + box.width / 2 - centerX;
-      const dy = box.y + box.height / 2 - centerY;
-      // Punto ciego: dentro de este radio conserva el último rumbo y deja de seguir.
-      if (Math.hypot(dx, dy) <= this.blindspotRadius) this.target = null;
-    }
-    if (this.target && this.target.health > 0) {
-      // Solo corrige el rumbo durante la aproximación, siempre hacia abajo.
+    // deltaTime acumula el permiso de rastreo; al agotarse los 2 s se bloquea el ángulo.
+    const homingDt = this.isHoming
+      ? Math.max(0, Math.min(dt, this.homingDuration - this.homingElapsed))
+      : 0;
+    if (this.isHoming && this.target && homingDt > 0) {
+      // Limita el giro a la fracción del frame que aún queda dentro del plazo.
       const box = this.target.hitbox;
       const desired = Math.atan2(box.y + box.height / 2 - centerY, box.x + box.width / 2 - centerX);
       const difference = Math.atan2(Math.sin(desired - this.angle), Math.cos(desired - this.angle));
-      this.angle += Math.max(-this.turnRate * dt, Math.min(this.turnRate * dt, difference));
+      this.angle += Math.max(-this.turnRate * homingDt, Math.min(this.turnRate * homingDt, difference));
       this.angle = Projectile.downwardAngle(this.angle);
     }
+    this.homingElapsed += homingDt;
+    if (this.isHoming && this.homingElapsed >= this.homingDuration) {
+      this.isHoming = false;
+      this.target = null;
+    }
+    // Después del límite no se vuelve a modificar el ángulo: sigue una línea recta.
     this.setBounds(centerX + Math.cos(this.angle) * this.speed * dt, centerY + Math.sin(this.angle) * this.speed * dt);
-    if (this.target && this.y + this.height / 2 >= this.target.hitbox.y) this.target = null;
     if (this.y + this.height < 0 || this.y > height || this.x + this.width < 0 || this.x > width) this.active = false;
   }
 
