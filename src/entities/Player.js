@@ -69,7 +69,7 @@ export class Player {
   takeHit() {
     if (this.invulnerability > 0 || this.health <= 0) return false;
     this.health -= 1;
-    this.invulnerability = 1.4;
+    this.invulnerability = 1.5;
     return true;
   }
 
