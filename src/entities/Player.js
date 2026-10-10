@@ -52,7 +52,9 @@ export class Player {
     this.cooldown = this.powerTime > 0 ? 0.065 : this.shotInterval;
     this.muzzleFlash = 0.055;
     const angles = this.powerTime > 0 ? [-0.2, 0, 0.2] : [0];
-    return angles.map((offset) => new Projectile(this.x + this.width * 0.75, this.y + 2, this.projectileImage, { angle: -Math.PI / 2 + offset }));
+    return angles.map((offset) => new Projectile(this.x + this.width * 0.75, this.y + 2, this.projectileImage, {
+      angle: -Math.PI / 2 + offset, fiery: this.powerTime > 0,
+    }));
   }
 
   // Una ráfaga de dos ojos no puede quitar varias vidas de un solo golpe.

@@ -45,13 +45,15 @@ canvas { display: block; image-rendering: pixelated; }
 h2 { white-space: pre-line; font-family: system-ui, sans-serif; font-size: clamp(30px, 5vw, 47px); letter-spacing: -2px; line-height: 1.02; margin: 18px 0; }
 .start-card p:not(.eyebrow) { color: #a8b8b7; font-size: 12px; line-height: 1.7; margin-bottom: 20px; }
 .primary { display: flex; justify-content: space-between; width: 100%; border: 0; padding: 15px 18px; background: #f1ba62; color: #172022; font-weight: bold; letter-spacing: 2px; }
+.fullscreen-start { display: block; width: 100%; min-height: 48px; margin-top: 10px; padding: 10px; border: 1px solid #81dec3; background: #81dec315; color: #b4eddc; font-size: 10px; font-weight: bold; line-height: 1.5; }
+.start-card .fullscreen-message { color: #ffc76a; font-size: 10px; margin: 10px 0 0; }
 .start-card small { display: block; margin-top: 15px; text-align: center; color: #a8b8b7; font-size: 9px; }
 .screen-label { display: flex; justify-content: space-between; padding: 7px 12px 0; color: #78918f; font-size: 8px; letter-spacing: 1px; pointer-events: none; }
 .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px 3px; color: #a8b8b7; font-size: 9px; }
 kbd { display: inline-block; font: inherit; border: 1px solid #506060; padding: 4px 6px; color: #eae5d5; }
 .controls button { border: 0; color: #a8b8b7; background: transparent; font-size: 9px; padding: 0; }
 footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 8px; color: #879b9e; font-size: 8px; line-height: 1.7; }
-.reveal { position: absolute; z-index: 2; top: 36%; left: 50%; transform: translateX(-50%); width: max-content; max-width: 90%; padding: 12px 18px; background: #261126de; border: 1px solid #ff3f91; color: #ffb7d4; text-align: center; font-size: clamp(12px, 2vw, 20px); pointer-events: none; }
+.reveal { position: absolute; z-index: 2; top: 36%; left: 50%; transform: translateX(-50%); width: max-content; max-width: 90%; padding: 12px 18px; background: #160b0bf0; border: 1px solid #d63222; color: #ffb19b; text-align: center; font-size: clamp(12px, 2vw, 20px); pointer-events: none; }
 .reveal small { display: block; margin-top: 6px; font-size: 9px; }
 /* Controles sobre el canvas, con una franja libre bajo el jugador para los dedos. */
 .touch-controls { display: none; position: absolute; z-index: 3; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; justify-content: space-between; align-items: end; pointer-events: none; }

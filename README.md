@@ -26,18 +26,20 @@ Abre [http://localhost:8000](http://localhost:8000) en el navegador. En VS Code 
 | Activar el jalapeño guardado | `Ctrl` o botón del inventario |
 | Pausar o reanudar | `P` o `Esc` |
 | Reiniciar | `R` |
-| Ampliar la pantalla | Botón **Ampliar** del juego |
+| Iniciar en pantalla completa | **Jugar en pantalla completa** en el menú |
+| Ampliar la pantalla durante la partida | Botón **Ampliar** del juego |
 
-En móviles el mundo cambia a formato vertical y los botones superpuestos permiten moverse, disparar y activar el jalapeño con varios dedos a la vez. Al girar el dispositivo la partida se pausa y conserva su progreso.
+En móviles el mundo cambia a formato vertical y los botones superpuestos permiten moverse, disparar y activar el jalapeño con varios dedos a la vez. El botón de pantalla completa solicita ocultar la interfaz del navegador antes de iniciar. Si el navegador no admite la API o rechaza la solicitud, el menú muestra un aviso y permite usar **Jugar**. Al girar el dispositivo la partida se pausa y conserva su progreso.
 
 ## Cómo se juega
 
 - Las tropas comienzan con 36 enemigos y aumentan en 4 por oleada hasta 72. Su vida es `1 + floor((oleada - 1) / 3)`; los márgenes iniciales equivalen a 2,5 cabezas por lado.
 - Aparecen cuatro guardianes desde la oleada 3 y cinco desde la 5. Tienen `10 + 3 × (oleada - 3)` puntos de vida.
-- Un guardián aleatorio de cada oleada es un impostor. Al agotar su primera barra crece a 1,8 veces su tamaño, revela una forma violeta y recupera `ceil(vida inicial × 2,2)` puntos de vida. Su derrota definitiva vale 600 puntos.
-- La formación cambia suavemente cada 20 segundos entre **bloque**, **triángulo** y **semiluna**.
-- Cada diez segundos los guardianes disparan dos láseres teledirigidos (tres para el impostor revelado), con un segundo de aviso. Persiguen continuamente al cuy con velocidad de giro limitada para permitir esquivarlos.
-- Cada cinco guardianes derrotados en total cae un jalapeño. Atrápalo para guardarlo en el inventario; pulsa Ctrl o el botón 🌶 para activar ocho segundos de disparo triple y rápido. No se activa al recogerlo. La primera fase del impostor no cuenta como una derrota.
+- Un guardián aleatorio de cada oleada es un impostor. Al agotar su primera barra crece a 1,8 veces su tamaño, revela una forma oscura con ojos y bordes rojos y recupera `ceil(vida inicial × 2,2)` puntos de vida. Su derrota definitiva vale 600 puntos.
+- Desde la oleada 7, si el impostor sobrevive 12 segundos tras revelarse, invoca cuatro secuaces una sola vez. Descienden hacia el cuy, pueden destruirse con choclos y causan daño por contacto. No cuentan como guardianes para el jalapeño. La oleada termina cuando no quedan tropas, guardianes ni secuaces.
+- La formación cambia suavemente cada **7 segundos** entre **bloque**, **triángulo** y **semiluna**, conservando el reloj entre oleadas y sin contar las pausas.
+- Cada **10 segundos** los guardianes disparan dos láseres teledirigidos (tres para el impostor revelado), con un segundo de aviso. Los láseres siempre avanzan hacia abajo y dejan de rastrear definitivamente cuando su centro alcanza la parte superior de la hitbox del cuy. Después conservan su rumbo hasta impactar o salir del lienzo.
+- Cada cinco guardianes derrotados en total cae un jalapeño. Atrápalo para guardarlo en el inventario; pulsa Ctrl o el botón 🌶 para activar ocho segundos de disparo triple y rápido de **choclos en llamas**, con aura de fuego. No se activa al recogerlo. La primera fase del impostor no cuenta como una derrota.
 - Tienes tres puntos de resistencia. Cada impacto resta uno y concede un instante de invulnerabilidad.
 - Al despejar una oleada comienza la siguiente de inmediato. La formación enemiga se mueve un 10 % más rápido en cada oleada.
 - Si los enemigos alcanzan el valle o te quedas sin resistencia, termina la partida.

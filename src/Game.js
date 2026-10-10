@@ -1,10 +1,10 @@
 import { InputHandler } from './InputHandler.js';
 import { Player } from './entities/Player.js';
-import { Enemy } from './entities/Enemy.js';
+import { Enemy, Minion } from './entities/Enemy.js';
 
 const FORMATIONS = ['grid', 'triangle', 'crescent'];
 const NAMES = { grid: 'BLOQUE', triangle: 'TRIÁNGULO', crescent: 'SEMILUNA' };
-const FORMATION_INTERVAL = 20;
+const FORMATION_INTERVAL = 7;
 const LASER_INTERVAL = 10;
 
 // Recortes de la hoja adjunta (2752 × 1536), sin los rótulos decorativos.
@@ -66,18 +66,20 @@ export class Game {
     const ids = ['score', 'wave', 'speed', 'health', 'formation', 'formation-time', 'laser-time',
       'bosses', 'boss-phase', 'fullscreen', 'pause', 'status', 'overlay', 'overlay-kicker',
       'overlay-title', 'overlay-message', 'overlay-hint', 'play', 'restart', 'announcement',
-      'item', 'item-icon', 'item-status', 'drop-progress', 'touch-power', 'reveal'];
+      'item', 'item-icon', 'item-status', 'drop-progress', 'touch-power', 'reveal', 'start-fullscreen', 'fullscreen-message'];
     this.ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     this.assets = this.loadAssets();
     this.input = new InputHandler((code) => this.handleAction(code));
     this.controller = new AbortController();
     const options = { signal: this.controller.signal };
     this.ui.play.addEventListener('click', () => this.play(), options);
+    this.ui['start-fullscreen'].addEventListener('click', () => this.playFullscreen(), options);
     this.ui.pause.addEventListener('click', () => this.togglePause(), options);
     this.ui.restart.addEventListener('click', () => this.restart(), options);
     this.ui.fullscreen.addEventListener('click', () => this.toggleFullscreen(), options);
     this.ui.item.addEventListener('click', () => this.activateJalapeno(), options);
     window.addEventListener('resize', () => this.resize(), options);
+    window.visualViewport?.addEventListener('resize', () => this.resize(), options);
     window.addEventListener('blur', () => this.pause(), options);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.pause();
@@ -85,6 +87,7 @@ export class Game {
     document.addEventListener('fullscreenchange', () => {
       this.ui.fullscreen.textContent = document.fullscreenElement ? 'SALIR ⤡' : 'AMPLIAR ⤢';
       this.resize();
+      this.syncUI();
     }, options);
     this.resize();
     this.reset('ready');
@@ -106,7 +109,8 @@ export class Game {
   resize() {
     const mobile = window.matchMedia('(max-width: 640px)').matches;
     const width = mobile ? 600 : 1200;
-    const height = mobile ? Math.round(Math.max(900, Math.min(1200, (window.innerHeight - 166) / window.innerWidth * 600))) : 800;
+    const visibleHeight = window.visualViewport?.height ?? window.innerHeight;
+    const height = mobile ? Math.round(Math.max(900, Math.min(1200, (visibleHeight - (document.fullscreenElement ? 110 : 166)) / window.innerWidth * 600))) : 800;
     const oldWidth = this.canvas.width;
     const oldHeight = this.canvas.height;
     if (oldWidth === width && oldHeight === height && this.layout) return;
@@ -129,7 +133,8 @@ export class Game {
       enemy.setSlot(enemy.isBoss ? Enemy.bossSlot(enemy.index, this.layout) : slots[enemy.index], true);
       enemy.update(0, this.formation);
     });
-    for (const entity of [...this.projectiles, ...this.enemyProjectiles, ...this.powerUps, ...this.particles]) {
+    this.minions.forEach((minion) => minion.resize(this.layout));
+    for (const entity of [...this.projectiles, ...this.enemyProjectiles, ...this.powerUps, ...this.particles, ...this.minions]) {
       entity.x *= width / oldWidth;
       entity.y *= height / oldHeight;
     }
@@ -144,6 +149,7 @@ export class Game {
     this.enemyProjectiles = [];
     this.particles = [];
     this.powerUps = [];
+    this.minions = [];
     this.inventory = null;
     this.guardiansDefeated = 0;
     this.formationIndex = 0;
@@ -151,6 +157,7 @@ export class Game {
     this.laserElapsed = 0;
     this.damageFlash = 0;
     this.revealTime = 0;
+    this.bossNotice = '';
     this.defeatReason = '';
     this.input.clear();
     this.player = new Player(this.canvas.width, this.canvas.height, null, this.assets.projectile, this.assets.pilot);
@@ -174,6 +181,7 @@ export class Game {
     this.enemies.forEach((enemy) => enemy.update(0, this.formation));
     this.laserElapsed = 0;
     this.enemyProjectiles = [];
+    this.minions = [];
     this.revealTime = 0;
     this.syncUI();
     this.announce('Oleada ' + this.wave + '. ' + this.layout.count + ' tropas y ' + this.layout.bosses + ' guardianes.');
@@ -216,17 +224,42 @@ export class Game {
     } catch { this.announce('La pantalla completa no está disponible en este navegador.'); }
   }
 
+  async playFullscreen() {
+    if (this.fullscreenPending) return;
+    this.fullscreenPending = true;
+    this.ui['start-fullscreen'].disabled = true;
+    this.ui['fullscreen-message'].hidden = true;
+    try {
+      const container = document.querySelector('.arcade');
+      if (!container.requestFullscreen) throw new Error('Fullscreen no disponible');
+      // La petición se hace desde el clic, antes de iniciar la partida.
+      if (!document.fullscreenElement) await container.requestFullscreen({ navigationUI: 'hide' });
+      // Espera a que el navegador aplique el nuevo viewport antes de arrancar.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      this.resize();
+      this.play();
+    } catch {
+      const message = 'No se pudo ampliar. Puedes jugar con el botón JUGAR.';
+      this.ui['fullscreen-message'].textContent = message;
+      this.ui['fullscreen-message'].hidden = false;
+      this.announce(message);
+    } finally {
+      this.fullscreenPending = false;
+      this.ui['start-fullscreen'].disabled = false;
+    }
+  }
+
   activateJalapeno() {
     if (this.state !== 'playing' || !this.inventory || this.player.powerTime > 0) return;
     this.inventory = null;
     this.player.activatePower();
-    this.announce('¡Jalapeño activado! Ocho segundos de choclos triples.');
+    this.announce('¡Jalapeño activado! Ocho segundos de choclos triples en llamas.');
     this.syncHUD();
   }
 
   updateFormation(dt) {
     this.formationElapsed += dt;
-    if (this.formationElapsed + 1e-9 >= FORMATION_INTERVAL) {
+    while (this.formationElapsed + 1e-9 >= FORMATION_INTERVAL) {
       this.formationElapsed = Math.max(0, this.formationElapsed - FORMATION_INTERVAL);
       this.formationIndex = (this.formationIndex + 1) % FORMATIONS.length;
       const name = FORMATIONS[this.formationIndex];
@@ -246,6 +279,30 @@ export class Game {
       this.laserElapsed = Math.max(0, this.laserElapsed - LASER_INTERVAL);
       this.enemies.forEach((enemy) => this.enemyProjectiles.push(...enemy.fireLasers()));
     }
+  }
+
+  updateSummons() {
+    for (const boss of this.enemies) {
+      if (!boss.consumeSummon()) continue;
+      for (let index = 0; index < 4; index += 1) {
+        const minion = new Minion(0, boss.y + boss.height + 18, this.assets.moche, this.wave, this.layout);
+        const center = boss.x + boss.width / 2 + (index - 1.5) * (minion.width + 10);
+        minion.x = Math.max(8, Math.min(this.canvas.width - minion.width - 8, center - minion.width / 2));
+        // Nacen delante del jefe, con un margen para que el cuy pueda reaccionar.
+        minion.y = Math.min(minion.y, this.player.hitbox.y - minion.height - 90);
+        this.minions.push(minion);
+      }
+      this.bossNotice = '¡EL IMPOSTOR INVOCA 4 SECUACES!';
+      this.revealTime = 3;
+      this.announce(this.bossNotice);
+    }
+  }
+
+  hitPlayer() {
+    if (!this.player.takeHit()) return;
+    this.damageFlash = 0.2;
+    this.burst(this.player, '#ff547d');
+    this.announce('Impacto. Resistencia: ' + this.player.health + ' de 3.');
   }
 
   endGame(reason) {
@@ -292,16 +349,19 @@ export class Game {
     if (this.input.isDown('Space')) this.projectiles.push(...this.player.shoot());
     this.projectiles.forEach((p) => p.update(dt, this.canvas.width, this.canvas.height));
     this.updateFormation(dt);
+    this.minions.forEach((minion) => minion.update(dt, this.player, this.canvas.width, this.canvas.height));
+    const targets = [...this.enemies, ...this.minions];
     for (const projectile of this.projectiles) {
       if (!projectile.active) continue;
-      for (const enemy of this.enemies) {
+      for (const enemy of targets) {
         if (!enemy.alive || !Game.overlaps(projectile, enemy)) continue;
         projectile.active = false;
         const result = enemy.takeHit();
         if (result === 'defeated') this.defeatEnemy(enemy);
         if (result === 'reveal') {
           this.revealTime = 3;
-          this.burst(enemy, '#ff3f91');
+          this.bossNotice = '¡IMPOSTOR REVELADO! DERROTA SU VERDADERA FORMA';
+          this.burst(enemy, '#d63222');
           this.announce('¡Impostor revelado! Su verdadera forma tiene una nueva barra de vida.');
         }
         break;
@@ -309,28 +369,34 @@ export class Game {
     }
     this.projectiles = this.projectiles.filter((p) => p.active);
     this.enemies = this.enemies.filter((enemy) => enemy.alive);
+    // Se resuelven primero los impactos: un jefe derrotado no puede invocar.
+    this.updateSummons();
     this.updateLasers(dt);
     for (const laser of this.enemyProjectiles) {
       laser.update(dt, this.canvas.width, this.canvas.height);
       if (laser.active && Game.overlaps(laser, this.player.hitbox)) {
         laser.active = false;
-        if (this.player.takeHit()) {
-          this.damageFlash = 0.2;
-          this.burst(this.player, '#ff547d');
-          this.announce('Impacto. Resistencia: ' + this.player.health + ' de 3.');
-        }
+        this.hitPlayer();
       }
     }
     this.enemyProjectiles = this.enemyProjectiles.filter((p) => p.active);
+    for (const minion of this.minions) {
+      if (minion.alive && Game.overlaps(minion, this.player.hitbox)) {
+        minion.alive = false;
+        this.burst(minion, '#d63222');
+        this.hitPlayer();
+      }
+    }
+    this.minions = this.minions.filter((minion) => minion.alive);
     this.updatePowerUps(dt);
     this.particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
     this.particles = this.particles.filter((p) => p.life > 0);
-    if (this.player.health <= 0) { this.endGame('Los láseres alcanzaron tu ametralladora.'); return; }
+    if (this.player.health <= 0) { this.endGame('Tu ametralladora se quedó sin resistencia.'); return; }
     if (this.enemies.some((enemy) => enemy.y + enemy.height >= this.player.hitbox.y)) {
       this.endGame('Las reliquias llegaron al valle.');
       return;
     }
-    if (!this.enemies.length) { this.projectiles = []; this.spawnWave(); }
+    if (!this.enemies.length && !this.minions.length) { this.projectiles = []; this.spawnWave(); }
     this.syncHUD();
   }
 
@@ -352,7 +418,7 @@ export class Game {
       'formation-time': Math.ceil(FORMATION_INTERVAL - this.formationElapsed) + 's',
       'laser-time': bosses ? (this.laserElapsed >= 9 ? '¡ESQUIVA!' : Math.ceil(LASER_INTERVAL - this.laserElapsed) + 's') : '—',
       bosses: this.layout.bosses ? bosses + '/' + this.layout.bosses : 'DESDE N.3',
-      'boss-phase': this.enemies.some((enemy) => enemy.isTrueForm) ? 'IMPOSTOR' : '',
+      'boss-phase': this.minions.length ? this.minions.length + ' SECUACES' : this.enemies.some((enemy) => enemy.isTrueForm) ? 'IMPOSTOR' : '',
       'item-status': this.player.powerTime > 0 ? Math.ceil(this.player.powerTime) + 's TRIPLE' : this.inventory ? 'LISTO · CTRL' : 'VACÍO',
       'drop-progress': this.guardiansDefeated % 5 + '/5 GUARDIANES',
     };
@@ -363,6 +429,7 @@ export class Game {
     this.ui.item.classList.toggle('loaded', Boolean(this.inventory));
     this.ui.item.classList.toggle('active', this.player.powerTime > 0);
     this.ui.reveal.hidden = this.revealTime <= 0 || this.state !== 'playing';
+    if (this.ui.reveal.textContent !== this.bossNotice) this.ui.reveal.textContent = this.bossNotice;
     this.ui.health.setAttribute('aria-label', 'Resistencia: ' + this.player.health + ' de 3');
   }
 
@@ -373,8 +440,9 @@ export class Game {
     this.ui.pause.textContent = this.state === 'paused' ? '▶' : 'Ⅱ';
     this.ui.pause.setAttribute('aria-label', this.state === 'paused' ? 'Reanudar partida' : 'Pausar partida');
     this.ui.overlay.hidden = this.state === 'playing';
+    this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement);
     const copy = {
-      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Guardianes desde el nivel 3. Uno oculta su verdadera forma. Atrapa el jalapeño y activa tu disparo triple con Ctrl o el botón 🌶.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
+      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Formaciones cada 7s. Esquiva los láseres y activa choclos en llamas con el jalapeño. Desde el nivel 7, el impostor oscuro puede invocar secuaces.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
       over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER / ESPACIO'],
     }[this.state];
@@ -423,6 +491,7 @@ export class Game {
     this.drawBackground();
     this.enemies.forEach((enemy) => enemy.drawLaserWarning(this.ctx));
     this.enemies.forEach((enemy) => enemy.draw(this.ctx));
+    this.minions.forEach((minion) => minion.draw(this.ctx));
     this.powerUps.forEach((item) => this.drawJalapeno(this.ctx, item.x, item.y, item.width, item.height));
     this.projectiles.forEach((p) => p.draw(this.ctx));
     this.enemyProjectiles.forEach((p) => p.draw(this.ctx));

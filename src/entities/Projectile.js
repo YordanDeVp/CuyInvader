@@ -8,8 +8,11 @@ export class Projectile {
     this.y = y - this.height / 2;
     this.sprite = sprite;
     this.target = options.target;
+    this.fiery = Boolean(options.fiery);
+    this.age = 0;
     this.turnRate = options.turnRate ?? 1.25;
     this.angle = options.angle ?? -Math.PI / 2;
+    if (this.team === 'enemy') this.angle = Projectile.downwardAngle(this.angle);
     this.active = true;
     this.setBounds(centerX, y);
   }
@@ -29,17 +32,27 @@ export class Projectile {
     return new Projectile(x, y, null, { team: 'enemy', target, speed, angle });
   }
 
+  // Nunca permite invertir la marcha ni quedarse volando horizontalmente.
+  static downwardAngle(angle) {
+    return Math.max(Math.PI / 12, Math.min(Math.PI * 11 / 12, angle));
+  }
+
   update(dt, width, height) {
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
+    this.age += dt;
+    // Al llegar a la altura del cuy perdemos el objetivo de forma irreversible.
+    if (this.target && (this.target.health <= 0 || centerY >= this.target.hitbox.y)) this.target = null;
     if (this.target && this.target.health > 0) {
-      // Homing continuo en ambos ejes; limitar el giro permite esquivar el láser.
+      // Solo corrige el rumbo durante la aproximación, siempre hacia abajo.
       const box = this.target.hitbox;
       const desired = Math.atan2(box.y + box.height / 2 - centerY, box.x + box.width / 2 - centerX);
       const difference = Math.atan2(Math.sin(desired - this.angle), Math.cos(desired - this.angle));
       this.angle += Math.max(-this.turnRate * dt, Math.min(this.turnRate * dt, difference));
+      this.angle = Projectile.downwardAngle(this.angle);
     }
     this.setBounds(centerX + Math.cos(this.angle) * this.speed * dt, centerY + Math.sin(this.angle) * this.speed * dt);
+    if (this.target && this.y + this.height / 2 >= this.target.hitbox.y) this.target = null;
     if (this.y + this.height < 0 || this.y > height || this.x + this.width < 0 || this.x > width) this.active = false;
   }
 
@@ -47,6 +60,19 @@ export class Projectile {
     ctx.save();
     ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
     ctx.rotate(this.angle + Math.PI / 2);
+    if (this.fiery) {
+      // Fuego detrás del choclo; la estela es decorativa y no agranda la hitbox.
+      const flicker = Math.floor((Math.sin(this.age * 45) + 1) * 3);
+      ctx.shadowColor = '#ff6a18';
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = '#ed3d16';
+      ctx.fillRect(-9, -9, 18, 28 + flicker);
+      ctx.fillRect(-5, 18, 10, 8 + flicker);
+      ctx.fillStyle = '#ffb52e';
+      ctx.fillRect(-7, -11, 14, 25);
+      ctx.shadowBlur = 0;
+      ctx.filter = 'sepia(0.55) saturate(2.4)';
+    }
     if (this.team === 'enemy') {
       ctx.fillStyle = '#ff547d';
       ctx.fillRect(-5, -12, 10, 24);

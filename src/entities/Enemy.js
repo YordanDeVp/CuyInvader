@@ -1,11 +1,16 @@
 import { Projectile } from './Projectile.js';
 
+const MINION_DELAY = 12;
+
 export class Enemy {
   constructor(slot, type, sprite, index, wave, layout, impostor = false) {
     this.type = type;
     this.isBoss = type === 'boss';
     this.isImpostor = impostor;
     this.isTrueForm = false;
+    this.wave = wave;
+    this.revealedElapsed = 0;
+    this.hasSummoned = false;
     this.sprite = sprite;
     this.index = index;
     this.alive = true;
@@ -101,6 +106,14 @@ export class Enemy {
     this.y = formation.y + this.offsetY - this.height / 2;
     this.flash = Math.max(0, this.flash - dt);
     this.revealTime = Math.max(0, this.revealTime - dt);
+    if (this.alive && this.isTrueForm) this.revealedElapsed += dt;
+  }
+
+  // Una única invocación, 12 segundos después de revelarse, desde la oleada 7.
+  consumeSummon() {
+    if (!this.alive || !this.isTrueForm || this.wave < 7 || this.hasSummoned || this.revealedElapsed + 1e-9 < MINION_DELAY) return false;
+    this.hasSummoned = true;
+    return true;
   }
 
   takeHit() {
@@ -111,6 +124,7 @@ export class Enemy {
     if (this.isImpostor && !this.isTrueForm) {
       // La primera barra revela al impostor; solo su derrota definitiva cuenta.
       this.isTrueForm = true;
+      this.revealedElapsed = 0;
       this.maxHealth = Math.ceil(this.maxHealth * 2.2);
       this.health = this.maxHealth;
       this.x -= this.width * 0.4;
@@ -147,14 +161,14 @@ export class Enemy {
     const { x, y, width: w, height: h } = this;
     ctx.save();
     if (this.isBoss) {
-      ctx.fillStyle = this.isTrueForm ? '#ff3f912c' : '#f1ba6220';
+      ctx.fillStyle = this.isTrueForm ? '#140b0be6' : '#f1ba6220';
       ctx.fillRect(x - 4, y - 4, w + 8, h + 8);
-      ctx.strokeStyle = this.isTrueForm ? '#ff3f91' : '#e5ba68';
+      ctx.strokeStyle = this.isTrueForm ? '#d63222' : '#e5ba68';
       ctx.strokeRect(x - 3, y - 3, w + 6, h + 6);
     }
-    if (this.isTrueForm) ctx.filter = 'sepia(1) saturate(5) hue-rotate(270deg)';
+    if (this.isTrueForm) ctx.filter = 'grayscale(1) brightness(0.38) contrast(1.5)';
     if (!this.sprite?.draw(ctx, x, y, w, h)) {
-      ctx.fillStyle = this.isTrueForm ? '#bd397e' : this.isBoss ? '#ae8a69' : this.type === 'chavin' ? '#81c6bc' : '#d99672';
+      ctx.fillStyle = this.isTrueForm ? '#191619' : this.isBoss ? '#ae8a69' : this.type === 'chavin' ? '#81c6bc' : '#d99672';
       ctx.fillRect(x + w * 0.1, y, w * 0.8, h);
       ctx.fillRect(x, y + h * 0.2, w, h * 0.6);
       ctx.fillStyle = '#172228';
@@ -164,18 +178,18 @@ export class Enemy {
     }
     ctx.filter = 'none';
     if (this.isBoss) {
-      ctx.fillStyle = this.aim ? '#ffffff' : this.isTrueForm ? '#ff3f91' : '#ffc76a';
+      ctx.fillStyle = this.aim ? '#ffffff' : this.isTrueForm ? '#ff2a16' : '#ffc76a';
       this.eyes.forEach((eye) => ctx.fillRect(eye.x - 3, eye.y - 2, 6, 4));
     }
     if (this.isBoss || this.maxHealth > 1) {
       ctx.fillStyle = '#25363a';
       ctx.fillRect(x, y + h + 6, w, 4);
-      ctx.fillStyle = this.isTrueForm ? '#ff3f91' : '#f1ba62';
+      ctx.fillStyle = this.isTrueForm ? '#d63222' : '#f1ba62';
       ctx.fillRect(x, y + h + 6, w * this.health / this.maxHealth, 4);
     }
     if (this.flash > 0 || this.revealTime > 0) {
       ctx.globalAlpha = this.revealTime > 0 ? 0.2 + Math.sin(this.revealTime * 28) * 0.15 : 0.45;
-      ctx.fillStyle = this.isTrueForm ? '#ff8ac1' : '#fff0ad';
+      ctx.fillStyle = this.isTrueForm ? '#b72919' : '#fff0ad';
       ctx.fillRect(x, y, w, h);
     }
     ctx.restore();
@@ -194,5 +208,34 @@ export class Enemy {
       ctx.stroke();
     }
     ctx.restore();
+  }
+}
+
+// Los secuaces reutilizan daño y dibujo, pero se mueven fuera de la formación.
+export class Minion extends Enemy {
+  constructor(x, y, sprite, wave, layout) {
+    super({ x: 0, y: 0 }, 'minion', sprite, 0, wave, layout);
+    this.x = x;
+    this.y = y;
+    this.maxHealth = 1 + Math.floor((wave - 7) / 4);
+    this.health = this.maxHealth;
+    this.points = 15;
+  }
+
+  resize(layout) {
+    super.resize(layout);
+    this.width *= 0.7;
+    this.height = this.width;
+    this.speed = layout.mobile ? 90 : 110;
+  }
+
+  update(dt, player, width, height) {
+    const targetX = player.hitbox.x + player.hitbox.width / 2;
+    const dx = targetX - this.x - this.width / 2;
+    this.x += Math.max(-this.speed * 0.7 * dt, Math.min(this.speed * 0.7 * dt, dx));
+    this.x = Math.max(8, Math.min(width - this.width - 8, this.x));
+    this.y += this.speed * dt;
+    this.flash = Math.max(0, this.flash - dt);
+    if (this.y > height) this.alive = false;
   }
 }
