@@ -20,11 +20,11 @@
         <div class="speed-stat"><span>VELOCIDAD</span><strong id="speed">1.00×</strong></div>
         <div class="health-stat"><span>RESISTENCIA</span><strong id="health" aria-label="Resistencia: 3 de 3">♥♥♥</strong></div>
         <div class="power-inventory" aria-label="Inventario de poderes">
-          <button class="inventory" id="jalapeno-slot" type="button" disabled aria-label="Jalapeño, tecla Q, 0 de 3 cargas">
-            <span aria-hidden="true">🌶️</span><span><b id="jalapeno-count">0/3</b><small id="jalapeno-active">Q · AJÍ</small></span>
+          <button class="inventory" id="jalapeno-slot" type="button" disabled aria-label="Jalapeño, tecla Q o Control, 0 de 3 cargas">
+            <span aria-hidden="true">🌶️</span><span><b id="jalapeno-count">0/3</b><small id="jalapeno-active">Q / CTRL</small></span>
           </button>
-          <button class="inventory" id="missile-slot" type="button" disabled aria-label="Choclo misil, tecla E, 0 de 3 cargas">
-            <span aria-hidden="true">🌽🚀</span><span><b id="missile-count">0/3</b><small>E · MISIL</small></span>
+          <button class="inventory" id="missile-slot" type="button" disabled aria-label="Choclo misil, tecla E o Shift, 0 de 3 cargas">
+            <span aria-hidden="true">🌽</span><span><b id="missile-count">0/3</b><small>E / SHIFT</small></span>
           </button>
         </div>
         <button class="expand" id="fullscreen" type="button">AMPLIAR ⤢</button>
@@ -39,14 +39,14 @@
         <span>GUARDIANES <b id="bosses">DESDE N.3</b> <b id="boss-phase"></b></span>
       </div>
       <div class="screen">
-        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover; espacio para disparar, Q para jalapeño y E para choclo misil." aria-describedby="controls">
+        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover; espacio para disparar; Q o Control para jalapeño; E o Shift para choclo misil." aria-describedby="controls">
           Tu navegador necesita soporte para Canvas para ejecutar el juego.
         </canvas>
         <div class="overlay" id="overlay">
           <div class="start-card">
             <p class="eyebrow" id="overlay-kicker">UN CUY. UNA AMETRALLADORA.</p>
             <h2 id="overlay-title">Defiende<br>los Andes.</h2>
-            <p id="overlay-message">Espacio dispara. Q activa jalapeño y E lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder.</p>
+            <p id="overlay-message">Espacio dispara. Q o Ctrl activa jalapeño; E o Shift lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder.</p>
             <button class="primary" id="play" type="button">JUGAR <span>↗</span></button>
             <button class="fullscreen-start" id="start-fullscreen" type="button">JUGAR EN PANTALLA COMPLETA ⤢</button>
             <button class="fullscreen-start" id="pause-restart" type="button" hidden>REINICIAR PARTIDA</button>
@@ -86,7 +86,7 @@
       <div class="controls" id="controls">
         <span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> MOVER</span>
         <span><kbd>ESPACIO</kbd> DISPARAR</span>
-        <span><kbd>Q</kbd> AJÍ · <kbd>E</kbd> MISIL</span>
+        <span><kbd>Q</kbd> / <kbd>CTRL</kbd> AJÍ · <kbd>E</kbd> / <kbd>SHIFT</kbd> MISIL</span>
         <span><kbd>P</kbd> PAUSA</span>
         <button id="restart" type="button">REINICIAR <kbd>R</kbd></button>
       </div>

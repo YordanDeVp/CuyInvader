@@ -6,15 +6,35 @@ export class InputHandler {
     this.buttons = [...document.querySelectorAll('[data-control]')];
     this.controller = new AbortController();
     const options = { signal: this.controller.signal };
-    const codes = new Set(['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'Enter', 'KeyP', 'Escape', 'KeyR', 'KeyQ', 'KeyE']);
+    const codes = new Set(['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'Enter', 'KeyP', 'Escape', 'KeyR', 'KeyQ', 'KeyE',
+      'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight']);
     window.addEventListener('keydown', (event) => {
-      if (!codes.has(event.code) || event.altKey || event.metaKey) return;
-      if (event.ctrlKey) return;
+      const key = event.key.toLowerCase();
+      const powerKey = ['q', 'e', 'control', 'shift'].includes(key);
+      if ((!codes.has(event.code) && !powerKey) || event.altKey || event.metaKey) return;
+      // Conserva los atajos del navegador como Ctrl+R y Ctrl+C.
+      if (event.ctrlKey && key !== 'control') {
+        // Ctrl ya activó el jalapeño en su propio keydown; evita también
+        // que Ctrl+Q cierre el navegador como atajo predeterminado.
+        if (key === 'q') event.preventDefault();
+        return;
+      }
+      if (event.shiftKey && key === 'e') {
+        // Shift ya activó el misil; no consumas otra carga con Shift+E.
+        event.preventDefault();
+        return;
+      }
       if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (event.target.closest?.('button') && ['Enter', 'Space'].includes(event.code)) return;
       event.preventDefault();
       this.keys.add(event.code);
-      if (!event.repeat) onAction(event.code);
+      // Q/E también funcionan en mayúsculas. Ctrl+Q y Shift+E no repiten
+      // el poder: la tecla modificadora ya envió esa misma acción.
+      if (!event.repeat) {
+        if (key === 'q' || key === 'control') onAction('KeyQ');
+        else if (key === 'e' || key === 'shift') onAction('KeyE');
+        else onAction(event.code);
+      }
       this.refreshButtons();
     }, options);
     window.addEventListener('keyup', (event) => {

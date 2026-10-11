@@ -192,7 +192,7 @@ test('el láser gira suavemente hasta 1500 ms y no vuelve a consultar el objetiv
       assert.ok(Math.abs(laser.angle - before) <= laser.turnRate / fps + 1e-9);
     }
     assert.equal(laser.isHoming, false);
-    assert.equal(laser.homingElapsed, 1.5);
+    assert.ok(Math.abs(laser.homingElapsed - 1.5) < 1e-9);
     const angle = laser.angle;
     Object.defineProperty(target, 'hitbox', { get() { throw new Error('Rastreo fuera de plazo'); } });
     laser.update(1, 10000, 10000);

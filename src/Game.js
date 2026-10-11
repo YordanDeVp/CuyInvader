@@ -561,14 +561,14 @@ export class Game {
       'missile-count': this.player.chocloMisilCount + '/3',
       'touch-jalapeno-count': String(this.player.jalapenoCount),
       'touch-missile-count': String(this.player.chocloMisilCount),
-      'jalapeno-active': this.player.powerTime > 0 ? Math.ceil(this.player.powerTime) + 's FUEGO' : 'Q · AJÍ',
+      'jalapeno-active': this.player.powerTime > 0 ? Math.ceil(this.player.powerTime) + 's FUEGO' : 'Q / CTRL',
       'drop-progress': this.guardiansDefeated % 5 + '/5 GUARDIANES',
       'drop-time': this.wave >= 8 ? Math.ceil(this.dropInterval - this.dropElapsed) + 's' : 'DESDE N.8',
     };
     for (const [key, value] of Object.entries(values)) if (this.ui[key] && this.ui[key].textContent !== value) this.ui[key].textContent = value;
     for (const [kind, slot, touch, label] of [
-      ['jalapeno', 'jalapeno-slot', 'touch-jalapeno', 'Jalapeño, tecla Q'],
-      ['missile', 'missile-slot', 'touch-missile', 'Choclo misil, tecla E'],
+      ['jalapeno', 'jalapeno-slot', 'touch-jalapeno', 'Jalapeño, teclas Q o Control'],
+      ['missile', 'missile-slot', 'touch-missile', 'Choclo misil, teclas E o Shift'],
     ]) {
       const count = this.player.powerCount(kind);
       const active = kind === 'jalapeno' && this.player.powerTime > 0;
@@ -609,7 +609,7 @@ export class Game {
     if (this.ui['start-fullscreen']) this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement) || !['ready', 'over'].includes(this.state);
     if (this.ui['damage-upgrade']) this.ui['damage-upgrade'].hidden = this.state !== GameState.UPGRADE_MENU;
     const copy = {
-      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Espacio dispara. Q activa jalapeño y E lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder. Desde la oleada 8 caen burbujas.', 'JUGAR', 'FLECHAS / A D · ESPACIO · Q / E'],
+      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Espacio dispara. Q o Ctrl activa jalapeño; E o Shift lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder. Desde la oleada 8 caen burbujas.', 'JUGAR', 'FLECHAS / A D · ESPACIO · Q / CTRL · E / SHIFT'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
       over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER'],
       [GameState.UPGRADE_MENU]: ['DESCANSO ENTRE OLEADAS', '¡Mejora tu equipo!', 'La oleada ' + this.pendingWave + ' tendrá más resistencia. Elige una mejora para continuar.', '+ VELOCIDAD (+20 %)', 'ELIGE UNA MEJORA PARA SEGUIR'],
