@@ -65,6 +65,15 @@ export class Player {
     }));
   }
 
+  // El ataque especial conserva el daño mejorado y usa una hitbox mayor.
+  shootMissile(blastWidth, blastHeight) {
+    this.muzzleFlash = 0.12;
+    return new Projectile(this.x + this.width * 0.75, this.y - 20, this.projectileImage, {
+      isMissile: true, speed: 580, damage: this.projectileDamage * 4,
+      blastWidth, blastHeight,
+    });
+  }
+
   // Una ráfaga de dos ojos no puede quitar varias vidas de un solo golpe.
   takeHit() {
     if (this.invulnerability > 0 || this.health <= 0) return false;

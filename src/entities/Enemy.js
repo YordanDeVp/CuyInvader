@@ -30,17 +30,32 @@ export class Enemy {
   static troopHealthForWave(wave) { return 1 + Math.floor((wave - 1) / 3); }
 
   // La densidad crece hasta 72 tropas; la vida y la velocidad siguen aumentando.
-  static layout(wave, width, height) {
+  static layout(wave, width, height, playerY = height - (width <= 640 ? 64.5 : 86) - 28, retainedCount = null) {
     const mobile = width <= 640;
-    const count = Math.min(72, 36 + (wave - 1) * 4);
+    const gap = 12;
+    const startY = 8; // Offset superior: primera fila a ocho píxeles del borde.
+    const safetyMargin = 96;
+    const spawnLimit = playerY - safetyMargin;
+    const bosses = Enemy.guardianCount(wave);
+    const bossSize = mobile ? 52 : 72;
     const baseSize = mobile ? 32 : 46;
+    let size = baseSize;
     const columns = Math.min((mobile ? 8 : 12) + Math.floor((wave - 1) / 3), Math.floor((width - baseSize * 5) / (baseSize * 1.15)));
-    const triangleRows = Math.ceil(count * 2 / columns);
-    const size = Math.floor(Math.min(baseSize, height * 0.40 / triangleRows * 0.9));
+    const availableColumns = Math.max(2, Math.min(columns, Math.floor((width - size * 5 + gap) / (size + gap))));
+    const troopTop = bosses ? bossSize + gap : 0;
+    const availableHeight = Math.max(1, spawnLimit - startY - troopTop);
+    const maxRows = Math.max(1, Math.floor((availableHeight + gap) / (size + gap)));
+    // La forma más alta es el triángulo: recortamos tropas antes de crearlas,
+    // nunca enemigos vivos durante una transición. Su vida sigue escalando.
+    const count = retainedCount ?? Math.min(72, 36 + (wave - 1) * 4, Math.floor(maxRows * availableColumns / 2));
+    const triangleRows = Math.ceil(count * 2 / availableColumns);
+    // Al rotar la pantalla conservamos las tropas y sus índices; ajustamos el
+    // tamaño, no el número de enemigos pendientes de la oleada en curso.
+    size = Math.min(size, Math.max(1, (availableHeight - (triangleRows - 1) * gap) / triangleRows));
+    const depth = (triangleRows - 1) * (size + gap);
     // En cada borde quedan exactamente 2,5 cabezas al centrar el bloque.
-    return { count, columns, size, span: width - size * 5, height: height * 0.40,
-      bossSize: mobile ? 52 : 72, top: Enemy.guardianCount(wave) ? 122 : 40,
-      bosses: Enemy.guardianCount(wave), mobile };
+    return { count, columns: availableColumns, size, span: width - size * 5, height: depth,
+      bossSize, top: troopTop + size / 2, bosses, mobile, gap, startY, safetyMargin, spawnLimit };
   }
 
   static slotsForFormation(name, layout) {
@@ -60,7 +75,7 @@ export class Enemy {
       rowCounts = Array.from({ length: rows }, (_, row) => Math.min(columns, count - row * columns));
     }
     const pitch = (span - size) / Math.max(1, columns - 1);
-    const gap = Math.min(size * 1.6, height / Math.max(1, rows - 1));
+    const gap = size + layout.gap; // Separación libre mínima de 12 px por fila.
     const slots = [];
     rowCounts.forEach((amount, row) => {
       for (let column = 0; column < amount; column += 1) {
@@ -82,7 +97,7 @@ export class Enemy {
 
   static bossSlot(index, layout) {
     const span = layout.span - layout.bossSize * 1.8;
-    return { x: (index / Math.max(1, layout.bosses - 1) - 0.5) * span, y: layout.bossSize * 0.85 };
+    return { x: (index / Math.max(1, layout.bosses - 1) - 0.5) * span, y: layout.bossSize / 2 };
   }
 
   static advanceFormation(formation, speed, dt, canvasWidth) {

@@ -68,7 +68,7 @@ export class Game {
     const ids = ['score', 'wave', 'speed', 'health', 'formation', 'formation-time', 'laser-time',
       'bosses', 'boss-phase', 'fullscreen', 'pause', 'status', 'overlay', 'overlay-kicker',
       'overlay-title', 'overlay-message', 'overlay-hint', 'play', 'restart', 'announcement',
-      'item', 'item-icon', 'item-status', 'drop-progress', 'touch-power', 'reveal', 'start-fullscreen', 'fullscreen-message', 'damage-upgrade'];
+      'item', 'item-icon', 'item-status', 'drop-progress', 'drop-time', 'touch-power', 'touch-power-icon', 'reveal', 'start-fullscreen', 'fullscreen-message', 'damage-upgrade'];
     this.ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     this.assets = this.loadAssets();
     this.input = new InputHandler((code) => this.handleAction(code));
@@ -81,7 +81,7 @@ export class Game {
     this.ui.pause.addEventListener('click', () => this.togglePause(), options);
     this.ui.restart.addEventListener('click', () => this.restart(), options);
     this.ui.fullscreen.addEventListener('click', () => this.toggleFullscreen(), options);
-    this.ui.item.addEventListener('click', () => this.activateJalapeno(), options);
+    this.ui.item.addEventListener('click', () => this.activatePowerUp(), options);
     window.addEventListener('resize', () => this.resize(), options);
     window.visualViewport?.addEventListener('resize', () => this.resize(), options);
     window.addEventListener('blur', () => this.pause(), options);
@@ -129,12 +129,16 @@ export class Game {
     this.bottomSpace = 28;
     if (!this.player) return;
     this.pause();
+    const oldBottom = this.layout.top + this.layout.height + this.layout.size / 2;
+    const descentProgress = Math.max(0, (this.formation.y - this.layout.startY) /
+      Math.max(1, this.player.y - oldBottom - this.layout.startY));
     this.player.x *= width / oldWidth;
     this.player.resize(width, height, this.bottomSpace);
-    this.layout = Enemy.layout(this.wave, width, height);
+    this.layout = Enemy.layout(this.wave, width, height, this.player.y, this.layout.count);
     this.formation.halfWidth = this.layout.span / 2;
     this.formation.x = Math.max(12 + this.formation.halfWidth, Math.min(width - 12 - this.formation.halfWidth, this.formation.x * width / oldWidth));
-    this.formation.y *= height / oldHeight;
+    const newBottom = this.layout.top + this.layout.height + this.layout.size / 2;
+    this.formation.y = this.layout.startY + descentProgress * Math.max(1, this.player.y - newBottom - this.layout.startY);
     const slots = Enemy.slotsForFormation(FORMATIONS[this.formationIndex], this.layout);
     this.enemies.forEach((enemy) => {
       enemy.resize(this.layout);
@@ -142,6 +146,7 @@ export class Game {
       enemy.update(0, this.formation);
     });
     this.minions.forEach((minion) => minion.resize(this.layout));
+    this.explosions = [];
     for (const entity of [...this.projectiles, ...this.enemyProjectiles, ...this.powerUps, ...this.particles, ...this.minions]) {
       entity.x *= width / oldWidth;
       entity.y *= height / oldHeight;
@@ -156,9 +161,12 @@ export class Game {
     this.projectiles = [];
     this.enemyProjectiles = [];
     this.particles = [];
+    this.explosions = [];
     this.powerUps = [];
     this.minions = [];
     this.inventory = null;
+    this.dropElapsed = 0;
+    this.dropInterval = null; // Se activa al entrar por primera vez en oleada 8.
     this.guardiansDefeated = 0;
     this.upgradeOfferedWave = 0;
     this.pendingWave = null;
@@ -178,8 +186,9 @@ export class Game {
   spawnWave() {
     this.wave += 1;
     this.enemySpeed = Enemy.speedForWave(this.wave);
-    this.layout = Enemy.layout(this.wave, this.canvas.width, this.canvas.height);
-    this.formation = { x: this.canvas.width / 2, y: 36, direction: this.wave % 2 ? 1 : -1, halfWidth: this.layout.span / 2, descentElapsed: 0 };
+    this.layout = Enemy.layout(this.wave, this.canvas.width, this.canvas.height, this.player.y);
+    this.formation = { x: this.canvas.width / 2, y: this.layout.startY, direction: this.wave % 2 ? 1 : -1, halfWidth: this.layout.span / 2, descentElapsed: 0 };
+    if (this.wave >= 8 && this.dropInterval === null) this.dropInterval = this.randomDropInterval();
     this.enemies = Enemy.slotsForFormation(FORMATIONS[this.formationIndex], this.layout).map((slot, index) => {
       const type = index % 2 ? 'moche' : 'chavin';
       return new Enemy(slot, type, this.assets[type], index, this.wave, this.layout);
@@ -200,7 +209,7 @@ export class Game {
   announce(message) { this.ui.announcement.textContent = message; }
 
   handleAction(code) {
-    if (['ControlLeft', 'ControlRight'].includes(code)) this.activateJalapeno();
+    if (['ControlLeft', 'ControlRight'].includes(code)) this.activatePowerUp();
     // El botón táctil Fuego envía Space: tras perder no debe reiniciar la partida.
     else if (code === 'Enter' && ['ready', 'over'].includes(this.state)) this.play();
     else if (code === 'Space' && this.state === 'ready') this.play();
@@ -273,12 +282,41 @@ export class Game {
     }
   }
 
-  activateJalapeno() {
-    if (this.state !== 'playing' || !this.inventory || this.player.powerTime > 0) return;
+  activatePowerUp() {
+    if (this.state !== 'playing' || !this.inventory) return;
+    if (this.inventory === 'jalapeno' && this.player.powerTime > 0) return;
+    if (this.inventory === 'missile') {
+      // Tres celdas del bloque actual, centradas luego en el enemigo impactado.
+      const pitchX = (this.layout.span - this.layout.size) / Math.max(1, this.layout.columns - 1);
+      const rows = Math.ceil(this.layout.count / this.layout.columns);
+      const pitchY = this.layout.height / Math.max(1, rows - 1);
+      this.projectiles.push(this.player.shootMissile(pitchX * 3, pitchY * 3));
+      this.announce('¡Choclo misil lanzado! Explosión de área 3 por 3.');
+    } else {
+      this.player.activatePower();
+      this.announce('¡Jalapeño activado! Ocho segundos de choclos triples en llamas.');
+    }
     this.inventory = null;
-    this.player.activatePower();
-    this.announce('¡Jalapeño activado! Ocho segundos de choclos triples en llamas.');
     this.syncHUD();
+  }
+
+  randomDropInterval() { return 10 + Math.random() * 5; }
+
+  spawnPowerUp(kind, centerX, y, bubble = true) {
+    this.powerUps.push({ kind, bubble, x: Math.max(0, Math.min(this.canvas.width - 44, centerX - 22)), y, width: 44, height: 52 });
+  }
+
+  updateEndgameDrops(dt) {
+    if (this.state !== 'playing' || this.wave < 8 || this.dropInterval === null) return;
+    // Reloj global desde la oleada 8: persiste al cambiar de oleada y solo
+    // acumula deltaTime de juego activo (nunca pausa ni menú de mejoras).
+    this.dropElapsed += dt;
+    while (this.dropElapsed + 1e-9 >= this.dropInterval) {
+      this.dropElapsed = Math.max(0, this.dropElapsed - this.dropInterval);
+      const kind = Math.random() < 0.5 ? 'jalapeno' : 'missile';
+      this.spawnPowerUp(kind, 30 + Math.random() * (this.canvas.width - 60), -52);
+      this.dropInterval = this.randomDropInterval();
+    }
   }
 
   updateFormation(dt) {
@@ -347,7 +385,7 @@ export class Game {
     this.guardiansDefeated += 1;
     // El contador persiste entre oleadas; la primera fase del impostor no suma.
     if (this.guardiansDefeated % 5 === 0) {
-      this.powerUps.push({ x: enemy.x + enemy.width / 2 - 18, y: enemy.y, width: 36, height: 44 });
+      this.spawnPowerUp('jalapeno', enemy.x + enemy.width / 2, enemy.y);
       this.announce('¡Jalapeño! Atrápalo y guárdalo para activar con Ctrl.');
     }
   }
@@ -356,13 +394,39 @@ export class Game {
     this.powerUps = this.powerUps.filter((item) => {
       item.y += 125 * dt;
       if (!this.inventory && Game.overlaps(item, this.player.hitbox)) {
-        this.inventory = 'jalapeno';
-        this.announce('Jalapeño guardado. Pulsa Ctrl o el botón de poder.');
+        this.inventory = item.kind;
+        this.announce((item.kind === 'missile' ? 'Choclo misil gigante' : 'Jalapeño') + ' guardado. Pulsa Ctrl o el botón de poder.');
         return false;
       }
       // Con el inventario lleno el ítem sigue cayendo: nunca reemplaza al guardado.
       return item.y <= this.canvas.height;
     });
+  }
+
+  damageEnemy(enemy, damage) {
+    if (!enemy.alive) return;
+    const result = enemy.takeHit(damage);
+    if (result === 'defeated') this.defeatEnemy(enemy);
+    if (result === 'reveal') {
+      this.revealTime = 3;
+      this.bossNotice = '¡IMPOSTOR REVELADO! DERROTA SU VERDADERA FORMA';
+      this.burst(enemy, '#d63222');
+      this.announce('¡Impostor revelado! Su verdadera forma tiene una nueva barra de vida.');
+    }
+  }
+
+  detonateMissile(projectile, impact, targets) {
+    const area = {
+      x: impact.x + impact.width / 2 - projectile.blastWidth / 2,
+      y: impact.y + impact.height / 2 - projectile.blastHeight / 2,
+      width: projectile.blastWidth, height: projectile.blastHeight,
+    };
+    // AABB contra un área de 3×3 celdas. Cada enemigo recibe daño una vez;
+    // se reutilizan puntuación, drops y la segunda fase del impostor.
+    for (const target of targets) {
+      if (target.alive && Game.overlaps(area, target)) this.damageEnemy(target, projectile.damage);
+    }
+    this.explosions.push({ ...area, life: 0.35 });
   }
 
   update(dt) {
@@ -380,14 +444,8 @@ export class Game {
       for (const enemy of targets) {
         if (!enemy.alive || !Game.overlaps(projectile, enemy)) continue;
         projectile.active = false;
-        const result = enemy.takeHit(projectile.damage);
-        if (result === 'defeated') this.defeatEnemy(enemy);
-        if (result === 'reveal') {
-          this.revealTime = 3;
-          this.bossNotice = '¡IMPOSTOR REVELADO! DERROTA SU VERDADERA FORMA';
-          this.burst(enemy, '#d63222');
-          this.announce('¡Impostor revelado! Su verdadera forma tiene una nueva barra de vida.');
-        }
+        if (projectile.isMissile) this.detonateMissile(projectile, enemy, targets);
+        else this.damageEnemy(enemy, projectile.damage);
         break;
       }
     }
@@ -412,7 +470,10 @@ export class Game {
       }
     }
     this.minions = this.minions.filter((minion) => minion.alive);
+    this.updateEndgameDrops(dt);
     this.updatePowerUps(dt);
+    this.explosions.forEach((explosion) => { explosion.life -= dt; });
+    this.explosions = this.explosions.filter((explosion) => explosion.life > 0);
     this.particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
     this.particles = this.particles.filter((p) => p.life > 0);
     if (this.player.health <= 0) { this.endGame('Tu ametralladora se quedó sin resistencia.'); return; }
@@ -454,13 +515,18 @@ export class Game {
       'laser-time': bosses ? (this.laserElapsed >= 9 ? '¡ESQUIVA!' : Math.ceil(LASER_INTERVAL - this.laserElapsed) + 's') : '—',
       bosses: this.layout.bosses ? bosses + '/' + this.layout.bosses : 'DESDE N.3',
       'boss-phase': this.minions.length ? this.minions.length + ' SECUACES' : this.enemies.some((enemy) => enemy.isTrueForm) ? 'IMPOSTOR' : '',
-      'item-status': this.player.powerTime > 0 ? Math.ceil(this.player.powerTime) + 's TRIPLE' : this.inventory ? 'LISTO · CTRL' : 'VACÍO',
+      'item-status': this.inventory === 'missile' ? 'MISIL · CTRL' : this.inventory ? 'AJÍ · CTRL' : this.player.powerTime > 0 ? Math.ceil(this.player.powerTime) + 's TRIPLE' : 'VACÍO',
       'drop-progress': this.guardiansDefeated % 5 + '/5 GUARDIANES',
+      'drop-time': this.wave >= 8 ? Math.ceil(this.dropInterval - this.dropElapsed) + 's' : 'DESDE N.8',
     };
-    for (const [key, value] of Object.entries(values)) if (this.ui[key].textContent !== value) this.ui[key].textContent = value;
-    const canUse = this.state === 'playing' && Boolean(this.inventory) && this.player.powerTime === 0;
+    for (const [key, value] of Object.entries(values)) if (this.ui[key] && this.ui[key].textContent !== value) this.ui[key].textContent = value;
+    const canUse = this.state === 'playing' && Boolean(this.inventory) && (this.inventory === 'missile' || this.player.powerTime === 0);
     this.ui.item.disabled = !canUse;
     this.ui['touch-power'].disabled = !canUse;
+    const powerLabel = this.inventory === 'missile' ? 'Lanzar choclo misil gigante' : 'Activar jalapeño guardado';
+    this.ui.item.setAttribute('aria-label', powerLabel + ', tecla Control');
+    this.ui['touch-power'].setAttribute('aria-label', powerLabel);
+    if (this.ui['touch-power-icon']) this.ui['touch-power-icon'].textContent = this.inventory === 'missile' ? '🌽' : '🌶';
     this.ui.item.classList.toggle('loaded', Boolean(this.inventory));
     this.ui.item.classList.toggle('active', this.player.powerTime > 0);
     this.ui.reveal.hidden = this.revealTime <= 0 || this.state !== 'playing';
@@ -478,7 +544,7 @@ export class Game {
     if (this.ui['start-fullscreen']) this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement) || !['ready', 'over'].includes(this.state);
     if (this.ui['damage-upgrade']) this.ui['damage-upgrade'].hidden = this.state !== GameState.UPGRADE_MENU;
     const copy = {
-      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Formaciones cada 7s. Esquiva los láseres y activa choclos en llamas con el jalapeño. Desde el nivel 7, el impostor oscuro puede invocar secuaces.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
+      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Formaciones cada 7s. Esquiva los láseres y activa tu poder con Ctrl. Desde la oleada 8 caen burbujas de jalapeño o choclo misil con explosión 3×3.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
       over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER'],
       [GameState.UPGRADE_MENU]: ['DESCANSO ENTRE OLEADAS', '¡Mejora tu equipo!', 'La oleada ' + this.pendingWave + ' tendrá más resistencia. Elige una mejora para continuar.', '+ VELOCIDAD (+20 %)', 'ELIGE UNA MEJORA PARA SEGUIR'],
@@ -523,14 +589,49 @@ export class Game {
     ctx.fillRect(x + width * 0.65, y, width * 0.15, height * 0.3);
   }
 
+  drawPowerIcon(ctx, kind, x, y, width, height) {
+    if (kind !== 'missile') { this.drawJalapeno(ctx, x, y, width, height); return; }
+    if (this.assets.projectile.draw(ctx, x, y, width, height)) return;
+    ctx.fillStyle = '#f5cd69';
+    ctx.fillRect(x + width * 0.2, y, width * 0.6, height * 0.8);
+    ctx.fillStyle = '#fff0ad';
+    ctx.fillRect(x + width * 0.4, y + 2, width * 0.2, height * 0.7);
+    ctx.fillStyle = '#81dec3';
+    ctx.fillRect(x, y + height * 0.7, width, height * 0.3);
+  }
+
+  drawPowerUp(ctx, item) {
+    ctx.save();
+    if (item.bubble) {
+      ctx.fillStyle = '#81dec316';
+      ctx.strokeStyle = item.kind === 'missile' ? '#f5cd69' : '#81dec3';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(item.x + item.width / 2, item.y + item.height / 2, item.width / 2, item.height / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    this.drawPowerIcon(ctx, item.kind, item.x + 8, item.y + 7, item.width - 16, item.height - 14);
+    ctx.restore();
+  }
+
   render() {
     // Fondo → avisos → enemigos → ítems → disparos → cuy → partículas.
     // Las coordenadas decorativas están fuera del campo, en el DOM.
     this.drawBackground();
+    for (const explosion of this.explosions) {
+      this.ctx.save();
+      this.ctx.globalAlpha = explosion.life / 0.35;
+      this.ctx.fillStyle = '#f5cd6940';
+      this.ctx.strokeStyle = '#ffb52e';
+      this.ctx.fillRect(explosion.x, explosion.y, explosion.width, explosion.height);
+      this.ctx.strokeRect(explosion.x, explosion.y, explosion.width, explosion.height);
+      this.ctx.restore();
+    }
     this.enemies.forEach((enemy) => enemy.drawLaserWarning(this.ctx));
     this.enemies.forEach((enemy) => enemy.draw(this.ctx));
     this.minions.forEach((minion) => minion.draw(this.ctx));
-    this.powerUps.forEach((item) => this.drawJalapeno(this.ctx, item.x, item.y, item.width, item.height));
+    this.powerUps.forEach((item) => this.drawPowerUp(this.ctx, item));
     this.projectiles.forEach((p) => p.draw(this.ctx));
     this.enemyProjectiles.forEach((p) => p.draw(this.ctx));
     this.player.draw(this.ctx);
@@ -548,7 +649,7 @@ export class Game {
     icon.clearRect(0, 0, 32, 40);
     icon.imageSmoothingEnabled = false;
     icon.globalAlpha = this.inventory || this.player.powerTime > 0 ? 1 : 0.3;
-    this.drawJalapeno(icon, 2, 2, 28, 36);
+    this.drawPowerIcon(icon, this.inventory, 2, 2, 28, 36);
   }
 
   destroy() { this.input.destroy(); this.controller.abort(); }

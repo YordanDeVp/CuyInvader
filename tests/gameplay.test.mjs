@@ -134,3 +134,172 @@ test('el descenso real hasta el valle sigue terminando la partida', () => {
   assert.equal(game.state, GameState.GAME_OVER);
   assert.match(game.defeatReason, /valle/);
 });
+
+test('offset de 8 px, huecos de 12 px y barrera de generación en todas las formas', () => {
+  for (const [width, height] of [[600, 660], [600, 1200], [1200, 800]]) {
+    for (const wave of [1, 4, 8, 12, 30]) {
+      const game = session(wave, width, height);
+      const layout = game.layout;
+      assert.ok(layout.count <= Math.min(72, 36 + (wave - 1) * 4));
+      assert.ok(Math.abs(Math.min(...game.enemies.map((enemy) => enemy.y)) - 8) < 1e-6);
+      for (const name of ['grid', 'triangle', 'crescent']) {
+        const slots = Enemy.slotsForFormation(name, layout);
+        for (const slot of slots) {
+          assert.ok(layout.startY + slot.y + layout.size / 2 <= game.player.y - layout.safetyMargin + 1e-6);
+        }
+        for (let i = 0; i < slots.length; i += 1) {
+          for (let j = i + 1; j < slots.length; j += 1) {
+            assert.ok(Math.abs(slots[i].x - slots[j].x) >= layout.size + 12 - 1e-6 ||
+              Math.abs(slots[i].y - slots[j].y) >= layout.size + 12 - 1e-6, `${wave}: ${name} no deja 12 px`);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('rotar a móvil mantiene índices y tropas dentro de la barrera de generación', () => {
+  const desktop = Enemy.layout(12, 1200, 800);
+  const player = new Player(600, 660);
+  const mobile = Enemy.layout(12, 600, 660, player.y, desktop.count);
+  for (const name of ['grid', 'triangle', 'crescent']) {
+    const slots = Enemy.slotsForFormation(name, mobile);
+    assert.equal(slots.length, desktop.count);
+    assert.ok(Math.max(...slots.map((s) => mobile.startY + s.y + mobile.size / 2)) <= player.y - mobile.safetyMargin + 1e-6);
+  }
+});
+
+test('el láser gira suavemente hasta 1500 ms y no vuelve a consultar el objetivo', () => {
+  for (const fps of [30, 60, 120]) {
+    const target = { hitbox: { x: 1000, y: 9000, width: 50, height: 50 } };
+    const laser = Projectile.laser(0, 0, target);
+    for (let frame = 0; frame < fps * 1.5; frame += 1) {
+      const before = laser.angle;
+      laser.update(1 / fps, 10000, 10000);
+      assert.ok(Math.abs(laser.angle - before) <= laser.turnRate / fps + 1e-9);
+    }
+    assert.equal(laser.isHoming, false);
+    assert.equal(laser.homingElapsed, 1.5);
+    const angle = laser.angle;
+    Object.defineProperty(target, 'hitbox', { get() { throw new Error('Rastreo fuera de plazo'); } });
+    laser.update(1, 10000, 10000);
+    assert.equal(laser.angle, angle);
+  }
+  const laser = Projectile.laser(100, 100, { hitbox: { x: 1000, y: 2000, width: 10, height: 10 } });
+  laser.update(1.49, 10000, 10000);
+  const before = laser.angle;
+  laser.update(0.05, 10000, 10000);
+  assert.equal(laser.isHoming, false);
+  assert.ok(Math.abs(laser.angle - before) <= laser.turnRate * 0.01 + 1e-9);
+});
+
+test('burbujas solo desde oleada 8, reloj persistente y pausas sin consumir tiempo', (t) => {
+  t.mock.method(Math, 'random', () => 0.25);
+  const game = session(7);
+  game.updateEndgameDrops(60);
+  assert.equal(game.powerUps.length, 0);
+  assert.equal(game.dropInterval, null);
+  game.spawnWave();
+  assert.equal(game.dropInterval, 11.25);
+  game.updateEndgameDrops(10);
+  game.state = GameState.PAUSED;
+  game.update(60);
+  game.updateEndgameDrops(60);
+  assert.equal(game.dropElapsed, 10);
+  game.state = GameState.UPGRADE_MENU;
+  game.updateEndgameDrops(60);
+  assert.equal(game.dropElapsed, 10);
+  game.state = GameState.PLAYING;
+  game.spawnWave();
+  assert.equal(game.dropElapsed, 10);
+  game.updateEndgameDrops(1.25);
+  assert.equal(game.powerUps.length, 1);
+  assert.equal(game.powerUps[0].kind, 'jalapeno');
+  assert.equal(game.powerUps[0].y, -52);
+  assert.equal(game.powerUps[0].bubble, true);
+  game.reset();
+  assert.equal(game.dropElapsed, 0);
+  assert.equal(game.dropInterval, null);
+});
+
+test('probabilidad 50/50 e intervalos aleatorios dentro de 10–15 segundos', (t) => {
+  const game = session(8);
+  for (const [value, kind] of [[0, 'jalapeno'], [0.499, 'jalapeno'], [0.5, 'missile'], [0.999, 'missile']]) {
+    t.mock.method(Math, 'random', () => value);
+    game.dropInterval = 10;
+    game.dropElapsed = 0;
+    game.updateEndgameDrops(10);
+    assert.equal(game.powerUps.at(-1).kind, kind);
+    assert.ok(game.dropInterval >= 10 && game.dropInterval <= 15);
+  }
+});
+
+test('recoger un misil lo guarda sin disparar y Ctrl consume una sola carga', () => {
+  const game = session(8);
+  const box = game.player.hitbox;
+  game.spawnPowerUp('missile', box.x + box.width / 2, box.y);
+  game.updatePowerUps(0);
+  assert.equal(game.inventory, 'missile');
+  assert.equal(game.projectiles.length, 0);
+  game.spawnPowerUp('jalapeno', box.x + box.width / 2, box.y);
+  game.updatePowerUps(0);
+  assert.equal(game.inventory, 'missile');
+  assert.equal(game.powerUps.length, 1);
+  game.handleAction('ControlLeft');
+  assert.equal(game.inventory, null);
+  assert.equal(game.projectiles.length, 1);
+  assert.equal(game.projectiles[0].isMissile, true);
+  assert.ok(game.projectiles[0].width >= 36);
+  game.handleAction('ControlLeft');
+  assert.equal(game.projectiles.length, 1);
+  game.updatePowerUps(0);
+  game.activatePowerUp();
+  assert.equal(game.player.powerTime, 8);
+  assert.equal(game.player.shoot().length, 3);
+});
+
+test('el impacto de un misil elimina el bloque 3×3 una sola vez y deja fuera al resto', () => {
+  const game = session(8);
+  game.enemySpeed = 0;
+  const layout = { ...game.layout, size: 24 };
+  game.enemies = [];
+  for (let row = -1; row <= 1; row += 1) {
+    for (let col = -1; col <= 1; col += 1) {
+      game.enemies.push(new Enemy({ x: col * 80, y: 200 + row * 80 }, 'chavin', null, 0, 8, layout));
+    }
+  }
+  const outside = new Enemy({ x: 160, y: 200 }, 'moche', null, 0, 8, layout);
+  game.enemies.push(outside);
+  game.enemies.forEach((enemy) => enemy.update(0, game.formation));
+  const center = game.enemies[4];
+  const missile = game.player.shootMissile(240, 240);
+  missile.setBounds(center.x + center.width / 2, center.y + center.height / 2);
+  game.projectiles.push(missile);
+  game.update(0);
+  assert.deepEqual(game.enemies, [outside]);
+  assert.equal(outside.health, outside.maxHealth);
+  assert.equal(game.score, 4321 + 9 * 30);
+  assert.equal(game.explosions.length, 1);
+  assert.equal(game.projectiles.length, 0);
+  game.update(0);
+  assert.equal(game.score, 4321 + 9 * 30);
+});
+
+test('AoE respeta revelación del impostor y cuenta guardianes solo al morir', () => {
+  const game = session(8);
+  const boss = game.enemies.find((enemy) => enemy.isImpostor);
+  game.guardiansDefeated = 4;
+  const missile = game.player.shootMissile(200, 200);
+  missile.damage = 1000;
+  game.detonateMissile(missile, boss, [boss]);
+  assert.equal(boss.isTrueForm, true);
+  assert.equal(boss.alive, true);
+  assert.equal(game.guardiansDefeated, 4);
+  assert.equal(game.score, 4321);
+  boss.revealTime = 0;
+  game.detonateMissile(missile, boss, [boss]);
+  assert.equal(game.guardiansDefeated, 5);
+  assert.equal(game.score, 4921);
+  assert.equal(game.powerUps.length, 1);
+  assert.equal(game.powerUps[0].kind, 'jalapeno');
+});

@@ -9,9 +9,12 @@ export class Projectile {
     this.sprite = sprite;
     this.target = options.target;
     this.isHoming = this.team === 'enemy' && Boolean(this.target);
-    this.homingDuration = options.homingDuration ?? 2;
+    this.homingDuration = Math.min(options.homingDuration ?? 1.5, 1.5);
     this.homingElapsed = 0;
     this.fiery = Boolean(options.fiery);
+    this.isMissile = Boolean(options.isMissile);
+    this.blastWidth = options.blastWidth ?? 0;
+    this.blastHeight = options.blastHeight ?? 0;
     this.damage = options.damage ?? 1;
     this.age = 0;
     // Velocidad angular en radianes por segundo; limita los giros bruscos.
@@ -24,9 +27,10 @@ export class Projectile {
 
   // La caja de colisión acompaña el giro del trazo, también en disparos diagonales.
   setBounds(centerX, centerY) {
-    const thickness = this.team === 'enemy' ? 10 : 12;
-    this.width = Math.abs(Math.cos(this.angle)) * 24 + Math.abs(Math.sin(this.angle)) * thickness;
-    this.height = Math.abs(Math.sin(this.angle)) * 24 + Math.abs(Math.cos(this.angle)) * thickness;
+    const thickness = this.isMissile ? 36 : this.team === 'enemy' ? 10 : 12;
+    const length = this.isMissile ? 72 : 24;
+    this.width = Math.abs(Math.cos(this.angle)) * length + Math.abs(Math.sin(this.angle)) * thickness;
+    this.height = Math.abs(Math.sin(this.angle)) * length + Math.abs(Math.cos(this.angle)) * thickness;
     this.x = centerX - this.width / 2;
     this.y = centerY - this.height / 2;
   }
@@ -45,7 +49,8 @@ export class Projectile {
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
     this.age += dt;
-    // deltaTime acumula el permiso de rastreo; al agotarse los 2 s se bloquea el ángulo.
+    // dt está en segundos: rastreo durante 1,5 s (1500 ms), incluso si un
+    // frame cruza el límite. Después no vuelve a consultar al jugador.
     const homingDt = this.isHoming
       ? Math.max(0, Math.min(dt, this.homingDuration - this.homingElapsed))
       : 0;
@@ -58,7 +63,8 @@ export class Projectile {
       this.angle = Projectile.downwardAngle(this.angle);
     }
     this.homingElapsed += homingDt;
-    if (this.isHoming && this.homingElapsed >= this.homingDuration) {
+    if (this.isHoming && this.homingElapsed + 1e-9 >= this.homingDuration) {
+      this.homingElapsed = this.homingDuration;
       this.isHoming = false;
       this.target = null;
     }
@@ -71,6 +77,12 @@ export class Projectile {
     ctx.save();
     ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
     ctx.rotate(this.angle + Math.PI / 2);
+    if (this.isMissile) {
+      // El mismo sprite de choclo se amplía; el fallback también escala.
+      ctx.scale(3, 3);
+      ctx.fillStyle = '#81dec3';
+      ctx.fillRect(-3, 12, 6, 8 + Math.sin(this.age * 40) * 2);
+    }
     if (this.fiery) {
       // Fuego detrás del choclo; la estela es decorativa y no agranda la hitbox.
       const flicker = Math.floor((Math.sin(this.age * 45) + 1) * 3);

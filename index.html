@@ -29,17 +29,18 @@
       <div class="battlebar">
         <span>FORMACIÓN <b id="formation">BLOQUE</b> <small>↻ <b id="formation-time">7s</b></small></span>
         <span class="laser-clock">LÁSER <b id="laser-time">10s</b></span>
+        <span>BURBUJA <b id="drop-time">DESDE N.8</b></span>
         <span>GUARDIANES <b id="bosses">DESDE N.3</b> <b id="boss-phase"></b></span>
       </div>
       <div class="screen">
-        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover; espacio para disparar y Control para activar el jalapeño." aria-describedby="controls">
+        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover; espacio para disparar y Control para activar el poder guardado." aria-describedby="controls">
           Tu navegador necesita soporte para Canvas para ejecutar el juego.
         </canvas>
         <div class="overlay" id="overlay">
           <div class="start-card">
             <p class="eyebrow" id="overlay-kicker">UN CUY. UNA AMETRALLADORA.</p>
             <h2 id="overlay-title">Defiende<br>los Andes.</h2>
-            <p id="overlay-message">Formaciones cada 7s. Esquiva los láseres y activa choclos en llamas con el jalapeño. Desde el nivel 7, el impostor oscuro puede invocar secuaces.</p>
+            <p id="overlay-message">Formaciones cada 7s. Esquiva los láseres y activa tu poder con Ctrl. Desde la oleada 8 caen burbujas de jalapeño o choclo misil con explosión 3×3.</p>
             <button class="primary" id="play" type="button">JUGAR <span>↗</span></button>
             <button class="upgrade-choice" id="damage-upgrade" type="button" hidden>+ DAÑO AL CHOCLO (+1)</button>
             <button class="fullscreen-start" id="start-fullscreen" type="button">JUGAR EN PANTALLA COMPLETA ⤢</button>
@@ -55,7 +56,7 @@
           <button type="button" data-control="ArrowRight" aria-label="Mover a la derecha">→<small>DERECHA</small></button>
         </div>
         <div class="actions">
-          <button id="touch-power" type="button" data-control="ControlLeft" aria-label="Activar jalapeño" disabled>🌶<small>PODER</small></button>
+          <button id="touch-power" type="button" data-control="ControlLeft" aria-label="Activar poder guardado" disabled><span id="touch-power-icon">🌶</span><small>PODER</small></button>
           <button class="fire" type="button" data-control="Space" aria-label="Disparar choclos">✦<small>FUEGO</small></button>
         </div>
       </div>
@@ -63,7 +64,7 @@
       <div class="controls" id="controls">
         <span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> MOVER</span>
         <span><kbd>ESPACIO</kbd> DISPARAR</span>
-        <span><kbd>CTRL</kbd> JALAPEÑO</span>
+        <span><kbd>CTRL</kbd> PODER</span>
         <span><kbd>P</kbd> PAUSA</span>
         <button id="restart" type="button">REINICIAR <kbd>R</kbd></button>
       </div>
