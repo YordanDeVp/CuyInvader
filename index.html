@@ -15,10 +15,10 @@
     </header>
     <section class="cabinet" aria-label="Cuy Invaders">
       <div class="hud">
-        <div><span>PUNTAJE</span><strong id="score">000000</strong></div>
-        <div><span>OLEADA</span><strong id="wave">01</strong></div>
+        <div class="score-stat"><span>PUNTAJE</span><strong id="score">000000</strong></div>
+        <div class="wave-stat"><span>OLEADA</span><strong id="wave">01</strong></div>
         <div class="speed-stat"><span>VELOCIDAD</span><strong id="speed">1.00×</strong></div>
-        <div><span>RESISTENCIA</span><strong id="health" aria-label="Resistencia: 3 de 3">♥♥♥</strong></div>
+        <div class="health-stat"><span>RESISTENCIA</span><strong id="health" aria-label="Resistencia: 3 de 3">♥♥♥</strong></div>
         <div class="power-inventory" aria-label="Inventario de poderes">
           <button class="inventory" id="jalapeno-slot" type="button" disabled aria-label="Jalapeño, tecla Q, 0 de 3 cargas">
             <span aria-hidden="true">🌶️</span><span><b id="jalapeno-count">0/3</b><small id="jalapeno-active">Q · AJÍ</small></span>
@@ -49,6 +49,7 @@
             <p id="overlay-message">Espacio dispara. Q activa jalapeño y E lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder.</p>
             <button class="primary" id="play" type="button">JUGAR <span>↗</span></button>
             <button class="fullscreen-start" id="start-fullscreen" type="button">JUGAR EN PANTALLA COMPLETA ⤢</button>
+            <button class="fullscreen-start" id="pause-restart" type="button" hidden>REINICIAR PARTIDA</button>
             <p id="fullscreen-message" class="fullscreen-message" role="status" hidden></p>
             <small id="overlay-hint">O PRESIONA ENTER / ESPACIO</small>
           </div>

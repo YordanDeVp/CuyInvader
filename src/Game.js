@@ -68,7 +68,7 @@ export class Game {
     if (!this.ctx) throw new Error('No se pudo iniciar Canvas 2D.');
     const ids = ['score', 'wave', 'speed', 'health', 'formation', 'formation-time', 'laser-time',
       'bosses', 'boss-phase', 'fullscreen', 'pause', 'status', 'overlay', 'overlay-kicker',
-      'overlay-title', 'overlay-message', 'overlay-hint', 'play', 'restart', 'announcement',
+      'overlay-title', 'overlay-message', 'overlay-hint', 'play', 'restart', 'pause-restart', 'announcement',
       'jalapeno-slot', 'missile-slot', 'jalapeno-count', 'missile-count', 'jalapeno-active', 'sound',
       'drop-progress', 'drop-time', 'touch-jalapeno', 'touch-missile', 'touch-jalapeno-count', 'touch-missile-count',
       'reveal', 'start-fullscreen', 'fullscreen-message', 'damage-upgrade', 'speed-upgrade', 'upgrade-modal'];
@@ -92,6 +92,7 @@ export class Game {
     this.ui['start-fullscreen']?.addEventListener('click', () => this.playFullscreen(), options);
     this.ui.pause.addEventListener('click', () => this.togglePause(), options);
     this.ui.restart.addEventListener('click', () => this.restart(), options);
+    this.ui['pause-restart']?.addEventListener('click', () => this.restart(), options);
     this.ui.fullscreen.addEventListener('click', () => this.toggleFullscreen(), options);
     this.ui['jalapeno-slot']?.addEventListener('click', () => this.activatePowerUp('jalapeno'), options);
     this.ui['missile-slot']?.addEventListener('click', () => this.activatePowerUp('missile'), options);
@@ -131,17 +132,22 @@ export class Game {
 
   // Cambiamos las coordenadas reales del mundo; no estiramos un canvas horizontal.
   resize() {
-    const mobile = window.matchMedia('(max-width: 760px), (pointer: coarse) and (orientation: portrait)').matches;
+    const compact = window.matchMedia('(max-width: 768px)').matches;
+    const mobile = compact || window.matchMedia('(pointer: coarse) and (orientation: portrait)').matches;
     const width = mobile ? 600 : 1200;
     const visibleHeight = window.visualViewport?.height ?? window.innerHeight;
     // Reserva espacio real para HUD, etiqueta y gamepad que ahora vive bajo el canvas.
     const viewWidth = window.visualViewport?.width ?? window.innerWidth;
     const reservedUI = ['.masthead', '.hud', '.battlebar', '.touch-controls', '.screen-label', '.controls']
       .reduce((sum, selector) => sum + document.querySelector(selector).getBoundingClientRect().height, 24);
-    const height = mobile ? Math.round(Math.max(420, Math.min(1200, (visibleHeight - reservedUI) / Math.max(1, viewWidth) * 600))) : 800;
+    // En el layout compacto Flexbox decide el área libre. El mundo usa esa misma
+    // proporción para llenar el canvas sin estirar sprites ni sus hitboxes.
+    const screen = document.querySelector('.screen').getBoundingClientRect();
+    const height = compact ? Math.max(1, Math.round(screen.height / Math.max(1, screen.width) * width))
+      : mobile ? Math.round(Math.max(420, Math.min(1200, (visibleHeight - reservedUI) / Math.max(1, viewWidth) * 600))) : 800;
     const oldWidth = this.canvas.width;
     const oldHeight = this.canvas.height;
-    if (oldWidth === width && oldHeight === height && this.layout) return;
+    if (oldWidth === width && oldHeight === height && this.layout) { this.syncUI(); return; }
     this.canvas.width = width;
     this.canvas.height = height;
     this.ctx.imageSmoothingEnabled = false;
@@ -593,6 +599,7 @@ export class Game {
     this.ui.pause.textContent = this.state === 'paused' ? '▶' : 'Ⅱ';
     this.ui.pause.setAttribute('aria-label', this.state === 'paused' ? 'Reanudar partida' : 'Pausar partida');
     this.ui.overlay.hidden = this.state === 'playing';
+    if (this.ui['pause-restart']) this.ui['pause-restart'].hidden = this.state !== 'paused' || !window.matchMedia('(max-width: 768px)').matches;
     const upgradeModal = this.ui['upgrade-modal'];
     if (upgradeModal) {
       const opening = upgradeModal.hidden && this.state === GameState.UPGRADE_MENU;
