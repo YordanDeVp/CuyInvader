@@ -1,4 +1,5 @@
 import { InputHandler } from './InputHandler.js';
+import { AudioManager } from './AudioManager.js';
 import { Player } from './entities/Player.js';
 import { Enemy, Minion } from './entities/Enemy.js';
 
@@ -68,20 +69,39 @@ export class Game {
     const ids = ['score', 'wave', 'speed', 'health', 'formation', 'formation-time', 'laser-time',
       'bosses', 'boss-phase', 'fullscreen', 'pause', 'status', 'overlay', 'overlay-kicker',
       'overlay-title', 'overlay-message', 'overlay-hint', 'play', 'restart', 'announcement',
-      'item', 'item-icon', 'item-status', 'drop-progress', 'drop-time', 'touch-power', 'touch-power-icon', 'reveal', 'start-fullscreen', 'fullscreen-message', 'damage-upgrade'];
+      'jalapeno-slot', 'missile-slot', 'jalapeno-count', 'missile-count', 'jalapeno-active', 'sound',
+      'drop-progress', 'drop-time', 'touch-jalapeno', 'touch-missile', 'touch-jalapeno-count', 'touch-missile-count',
+      'reveal', 'start-fullscreen', 'fullscreen-message', 'damage-upgrade', 'speed-upgrade', 'upgrade-modal'];
     this.ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     this.assets = this.loadAssets();
+    this.audio = new AudioManager();
     this.input = new InputHandler((code) => this.handleAction(code));
     this.controller = new AbortController();
     const options = { signal: this.controller.signal };
     this.ui.play.addEventListener('click', () => this.state === GameState.UPGRADE_MENU ? this.applyUpgrade('speed') : this.play(), options);
     this.ui['damage-upgrade']?.addEventListener('click', () => this.applyUpgrade('damage'), options);
+    this.ui['speed-upgrade']?.addEventListener('click', () => this.applyUpgrade('speed'), options);
+    // El diálogo conserva el foco entre sus dos tarjetas al navegar con Tab.
+    this.ui['upgrade-modal']?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Tab') return;
+      event.preventDefault();
+      const speed = this.ui['speed-upgrade'];
+      (document.activeElement === speed ? this.ui['damage-upgrade'] : speed)?.focus();
+    }, options);
     // Un HTML anterior puede seguir en caché unos segundos durante el despliegue.
     this.ui['start-fullscreen']?.addEventListener('click', () => this.playFullscreen(), options);
     this.ui.pause.addEventListener('click', () => this.togglePause(), options);
     this.ui.restart.addEventListener('click', () => this.restart(), options);
     this.ui.fullscreen.addEventListener('click', () => this.toggleFullscreen(), options);
-    this.ui.item.addEventListener('click', () => this.activatePowerUp(), options);
+    this.ui['jalapeno-slot']?.addEventListener('click', () => this.activatePowerUp('jalapeno'), options);
+    this.ui['missile-slot']?.addEventListener('click', () => this.activatePowerUp('missile'), options);
+    this.ui.sound?.addEventListener('click', () => {
+      this.audio.toggleMute();
+      this.syncHUD();
+    }, options);
+    // Capture desbloquea el audio antes del click de Jugar o del control táctil.
+    document.querySelector('.arcade').addEventListener('pointerdown', () => this.audio.unlock(), { ...options, capture: true });
+    document.querySelector('.arcade').addEventListener('keydown', () => this.audio.unlock(), { ...options, capture: true });
     window.addEventListener('resize', () => this.resize(), options);
     window.visualViewport?.addEventListener('resize', () => this.resize(), options);
     window.addEventListener('blur', () => this.pause(), options);
@@ -116,8 +136,9 @@ export class Game {
     const visibleHeight = window.visualViewport?.height ?? window.innerHeight;
     // Reserva espacio real para HUD, etiqueta y gamepad que ahora vive bajo el canvas.
     const viewWidth = window.visualViewport?.width ?? window.innerWidth;
-    const reservedUI = document.fullscreenElement ? 300 : 305;
-    const height = mobile ? Math.round(Math.max(660, Math.min(1200, (visibleHeight - reservedUI) / Math.max(1, viewWidth) * 600))) : 800;
+    const reservedUI = ['.masthead', '.hud', '.battlebar', '.touch-controls', '.screen-label', '.controls']
+      .reduce((sum, selector) => sum + document.querySelector(selector).getBoundingClientRect().height, 24);
+    const height = mobile ? Math.round(Math.max(420, Math.min(1200, (visibleHeight - reservedUI) / Math.max(1, viewWidth) * 600))) : 800;
     const oldWidth = this.canvas.width;
     const oldHeight = this.canvas.height;
     if (oldWidth === width && oldHeight === height && this.layout) return;
@@ -164,7 +185,6 @@ export class Game {
     this.explosions = [];
     this.powerUps = [];
     this.minions = [];
-    this.inventory = null;
     this.dropElapsed = 0;
     this.dropInterval = null; // Se activa al entrar por primera vez en oleada 8.
     this.guardiansDefeated = 0;
@@ -209,7 +229,9 @@ export class Game {
   announce(message) { this.ui.announcement.textContent = message; }
 
   handleAction(code) {
-    if (['ControlLeft', 'ControlRight'].includes(code)) this.activatePowerUp();
+    this.audio?.unlock();
+    if (code === 'KeyQ') this.activatePowerUp('jalapeno');
+    else if (code === 'KeyE') this.activatePowerUp('missile');
     // El botón táctil Fuego envía Space: tras perder no debe reiniciar la partida.
     else if (code === 'Enter' && ['ready', 'over'].includes(this.state)) this.play();
     else if (code === 'Space' && this.state === 'ready') this.play();
@@ -282,10 +304,12 @@ export class Game {
     }
   }
 
-  activatePowerUp() {
-    if (this.state !== 'playing' || !this.inventory) return;
-    if (this.inventory === 'jalapeno' && this.player.powerTime > 0) return;
-    if (this.inventory === 'missile') {
+  activatePowerUp(kind) {
+    if (this.state !== 'playing') return;
+    // No se gastan cargas al pulsar Q mientras el jalapeño sigue activo.
+    if (kind === 'jalapeno' && this.player.powerTime > 0) return;
+    if (!this.player.consumePower(kind)) return;
+    if (kind === 'missile') {
       // Tres celdas del bloque actual, centradas luego en el enemigo impactado.
       const pitchX = (this.layout.span - this.layout.size) / Math.max(1, this.layout.columns - 1);
       const rows = Math.ceil(this.layout.count / this.layout.columns);
@@ -296,7 +320,8 @@ export class Game {
       this.player.activatePower();
       this.announce('¡Jalapeño activado! Ocho segundos de choclos triples en llamas.');
     }
-    this.inventory = null;
+    this.audio?.powerupUseSound();
+    this.audio?.playPowerUpJingle();
     this.syncHUD();
   }
 
@@ -381,24 +406,29 @@ export class Game {
   defeatEnemy(enemy) {
     this.score += enemy.points;
     this.burst(enemy);
+    this.audio?.explosionSound();
     if (!enemy.isBoss) return;
     this.guardiansDefeated += 1;
     // El contador persiste entre oleadas; la primera fase del impostor no suma.
     if (this.guardiansDefeated % 5 === 0) {
       this.spawnPowerUp('jalapeno', enemy.x + enemy.width / 2, enemy.y);
-      this.announce('¡Jalapeño! Atrápalo y guárdalo para activar con Ctrl.');
+      this.announce('¡Jalapeño! Atrápalo y guárdalo para activar con Q.');
     }
   }
 
   updatePowerUps(dt) {
     this.powerUps = this.powerUps.filter((item) => {
       item.y += 125 * dt;
-      if (!this.inventory && Game.overlaps(item, this.player.hitbox)) {
-        this.inventory = item.kind;
-        this.announce((item.kind === 'missile' ? 'Choclo misil gigante' : 'Jalapeño') + ' guardado. Pulsa Ctrl o el botón de poder.');
+      if (Game.overlaps(item, this.player.hitbox)) {
+        const stored = this.player.collectPower(item.kind);
+        // Inventario lleno: el drop se recoge igualmente y otorga 100 puntos.
+        if (!stored) this.score += 100;
+        this.audio?.powerupCollectSound();
+        this.announce(stored
+          ? (item.kind === 'missile' ? 'Choclo misil guardado. Pulsa E.' : 'Jalapeño guardado. Pulsa Q.')
+          : 'Poder al máximo: +100 puntos.');
         return false;
       }
-      // Con el inventario lleno el ítem sigue cayendo: nunca reemplaza al guardado.
       return item.y <= this.canvas.height;
     });
   }
@@ -412,6 +442,7 @@ export class Game {
       this.bossNotice = '¡IMPOSTOR REVELADO! DERROTA SU VERDADERA FORMA';
       this.burst(enemy, '#d63222');
       this.announce('¡Impostor revelado! Su verdadera forma tiene una nueva barra de vida.');
+      this.syncAudio();
     }
   }
 
@@ -434,7 +465,11 @@ export class Game {
     this.damageFlash = Math.max(0, this.damageFlash - dt);
     this.revealTime = Math.max(0, this.revealTime - dt);
     this.player.update(dt, this.input, this.canvas.width);
-    if (this.input.isDown('Space')) this.projectiles.push(...this.player.shoot());
+    if (this.input.isDown('Space')) {
+      const shots = this.player.shoot();
+      this.projectiles.push(...shots);
+      if (shots.length) this.audio?.shootSound();
+    }
     this.projectiles.forEach((p) => p.update(dt, this.canvas.width, this.canvas.height));
     this.updateFormation(dt);
     this.minions.forEach((minion) => minion.update(dt, this.player, this.canvas.width, this.canvas.height));
@@ -451,6 +486,7 @@ export class Game {
     }
     this.projectiles = this.projectiles.filter((p) => p.active);
     this.enemies = this.enemies.filter((enemy) => enemy.alive);
+    this.syncAudio();
     // Se resuelven primero los impactos: un jefe derrotado no puede invocar.
     this.updateSummons();
     this.updateLasers(dt);
@@ -515,20 +551,35 @@ export class Game {
       'laser-time': bosses ? (this.laserElapsed >= 9 ? '¡ESQUIVA!' : Math.ceil(LASER_INTERVAL - this.laserElapsed) + 's') : '—',
       bosses: this.layout.bosses ? bosses + '/' + this.layout.bosses : 'DESDE N.3',
       'boss-phase': this.minions.length ? this.minions.length + ' SECUACES' : this.enemies.some((enemy) => enemy.isTrueForm) ? 'IMPOSTOR' : '',
-      'item-status': this.inventory === 'missile' ? 'MISIL · CTRL' : this.inventory ? 'AJÍ · CTRL' : this.player.powerTime > 0 ? Math.ceil(this.player.powerTime) + 's TRIPLE' : 'VACÍO',
+      'jalapeno-count': this.player.jalapenoCount + '/3',
+      'missile-count': this.player.chocloMisilCount + '/3',
+      'touch-jalapeno-count': String(this.player.jalapenoCount),
+      'touch-missile-count': String(this.player.chocloMisilCount),
+      'jalapeno-active': this.player.powerTime > 0 ? Math.ceil(this.player.powerTime) + 's FUEGO' : 'Q · AJÍ',
       'drop-progress': this.guardiansDefeated % 5 + '/5 GUARDIANES',
       'drop-time': this.wave >= 8 ? Math.ceil(this.dropInterval - this.dropElapsed) + 's' : 'DESDE N.8',
     };
     for (const [key, value] of Object.entries(values)) if (this.ui[key] && this.ui[key].textContent !== value) this.ui[key].textContent = value;
-    const canUse = this.state === 'playing' && Boolean(this.inventory) && (this.inventory === 'missile' || this.player.powerTime === 0);
-    this.ui.item.disabled = !canUse;
-    this.ui['touch-power'].disabled = !canUse;
-    const powerLabel = this.inventory === 'missile' ? 'Lanzar choclo misil gigante' : 'Activar jalapeño guardado';
-    this.ui.item.setAttribute('aria-label', powerLabel + ', tecla Control');
-    this.ui['touch-power'].setAttribute('aria-label', powerLabel);
-    if (this.ui['touch-power-icon']) this.ui['touch-power-icon'].textContent = this.inventory === 'missile' ? '🌽' : '🌶';
-    this.ui.item.classList.toggle('loaded', Boolean(this.inventory));
-    this.ui.item.classList.toggle('active', this.player.powerTime > 0);
+    for (const [kind, slot, touch, label] of [
+      ['jalapeno', 'jalapeno-slot', 'touch-jalapeno', 'Jalapeño, tecla Q'],
+      ['missile', 'missile-slot', 'touch-missile', 'Choclo misil, tecla E'],
+    ]) {
+      const count = this.player.powerCount(kind);
+      const active = kind === 'jalapeno' && this.player.powerTime > 0;
+      for (const id of [slot, touch]) {
+        const button = this.ui[id];
+        if (!button) continue;
+        button.disabled = this.state !== 'playing' || count === 0 || active;
+        button.setAttribute('aria-label', label + ', ' + count + ' de 3 cargas' + (active ? ', activo' : ''));
+        button.classList.toggle('loaded', count > 0);
+        button.classList.toggle('active', active);
+      }
+    }
+    if (this.ui.sound) {
+      this.ui.sound.textContent = this.audio.muted ? 'SONIDO OFF' : 'SONIDO ON';
+      this.ui.sound.setAttribute('aria-pressed', String(!this.audio.muted));
+      this.ui.sound.setAttribute('aria-label', this.audio.muted ? 'Activar sonido' : 'Silenciar sonido');
+    }
     this.ui.reveal.hidden = this.revealTime <= 0 || this.state !== 'playing';
     if (this.ui.reveal.textContent !== this.bossNotice) this.ui.reveal.textContent = this.bossNotice;
     this.ui.health.setAttribute('aria-label', 'Resistencia: ' + this.player.health + ' de 3');
@@ -536,15 +587,22 @@ export class Game {
 
   syncUI() {
     this.syncHUD();
+    this.syncAudio();
     this.ui.status.textContent = { ready: 'EN ESPERA', playing: 'EN EL VALLE', paused: 'EN PAUSA', over: 'FIN DE PARTIDA', [GameState.UPGRADE_MENU]: 'MEJORA' }[this.state];
     this.ui.pause.disabled = !['playing', 'paused'].includes(this.state);
     this.ui.pause.textContent = this.state === 'paused' ? '▶' : 'Ⅱ';
     this.ui.pause.setAttribute('aria-label', this.state === 'paused' ? 'Reanudar partida' : 'Pausar partida');
     this.ui.overlay.hidden = this.state === 'playing';
+    const upgradeModal = this.ui['upgrade-modal'];
+    if (upgradeModal) {
+      const opening = upgradeModal.hidden && this.state === GameState.UPGRADE_MENU;
+      upgradeModal.hidden = this.state !== GameState.UPGRADE_MENU;
+      if (opening) this.ui['speed-upgrade']?.focus({ preventScroll: true });
+    }
     if (this.ui['start-fullscreen']) this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement) || !['ready', 'over'].includes(this.state);
     if (this.ui['damage-upgrade']) this.ui['damage-upgrade'].hidden = this.state !== GameState.UPGRADE_MENU;
     const copy = {
-      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Formaciones cada 7s. Esquiva los láseres y activa tu poder con Ctrl. Desde la oleada 8 caen burbujas de jalapeño o choclo misil con explosión 3×3.', 'JUGAR', 'FLECHAS / A D · ESPACIO · CTRL'],
+      ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Espacio dispara. Q activa jalapeño y E lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder. Desde la oleada 8 caen burbujas.', 'JUGAR', 'FLECHAS / A D · ESPACIO · Q / E'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
       over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER'],
       [GameState.UPGRADE_MENU]: ['DESCANSO ENTRE OLEADAS', '¡Mejora tu equipo!', 'La oleada ' + this.pendingWave + ' tendrá más resistencia. Elige una mejora para continuar.', '+ VELOCIDAD (+20 %)', 'ELIGE UNA MEJORA PARA SEGUIR'],
@@ -645,12 +703,12 @@ export class Game {
       this.ctx.fillStyle = '#ff547d18';
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
-    const icon = this.ui['item-icon'].getContext('2d');
-    icon.clearRect(0, 0, 32, 40);
-    icon.imageSmoothingEnabled = false;
-    icon.globalAlpha = this.inventory || this.player.powerTime > 0 ? 1 : 0.3;
-    this.drawPowerIcon(icon, this.inventory, 2, 2, 28, 36);
   }
 
-  destroy() { this.input.destroy(); this.controller.abort(); }
+  syncAudio() {
+    this.audio?.update({ playing: this.state === 'playing', wave: this.wave,
+      boss: this.enemies.some((enemy) => enemy.alive && enemy.isTrueForm) });
+  }
+
+  destroy() { this.input.destroy(); this.audio?.destroy(); this.controller.abort(); }
 }

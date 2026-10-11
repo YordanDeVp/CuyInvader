@@ -19,34 +19,52 @@
         <div><span>OLEADA</span><strong id="wave">01</strong></div>
         <div class="speed-stat"><span>VELOCIDAD</span><strong id="speed">1.00×</strong></div>
         <div><span>RESISTENCIA</span><strong id="health" aria-label="Resistencia: 3 de 3">♥♥♥</strong></div>
-        <button class="inventory" id="item" type="button" disabled aria-label="Activar jalapeño guardado, tecla Control">
-          <canvas id="item-icon" width="32" height="40" aria-hidden="true"></canvas>
-          <span><b id="item-status">VACÍO</b><small id="drop-progress">0/5 GUARDIANES</small></span>
-        </button>
+        <div class="power-inventory" aria-label="Inventario de poderes">
+          <button class="inventory" id="jalapeno-slot" type="button" disabled aria-label="Jalapeño, tecla Q, 0 de 3 cargas">
+            <span aria-hidden="true">🌶️</span><span><b id="jalapeno-count">0/3</b><small id="jalapeno-active">Q · AJÍ</small></span>
+          </button>
+          <button class="inventory" id="missile-slot" type="button" disabled aria-label="Choclo misil, tecla E, 0 de 3 cargas">
+            <span aria-hidden="true">🌽🚀</span><span><b id="missile-count">0/3</b><small>E · MISIL</small></span>
+          </button>
+        </div>
         <button class="expand" id="fullscreen" type="button">AMPLIAR ⤢</button>
         <button id="pause" type="button" disabled aria-label="Pausar partida">Ⅱ</button>
+        <button id="sound" type="button" aria-label="Silenciar sonido" aria-pressed="true">SONIDO ON</button>
       </div>
       <div class="battlebar">
         <span>FORMACIÓN <b id="formation">BLOQUE</b> <small>↻ <b id="formation-time">7s</b></small></span>
         <span class="laser-clock">LÁSER <b id="laser-time">10s</b></span>
         <span>BURBUJA <b id="drop-time">DESDE N.8</b></span>
+        <span>AJÍ <b id="drop-progress">0/5 GUARDIANES</b></span>
         <span>GUARDIANES <b id="bosses">DESDE N.3</b> <b id="boss-phase"></b></span>
       </div>
       <div class="screen">
-        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover; espacio para disparar y Control para activar el poder guardado." aria-describedby="controls">
+        <canvas id="game" width="1200" height="800" tabindex="0" aria-label="Campo de juego. Flechas o A y D para mover; espacio para disparar, Q para jalapeño y E para choclo misil." aria-describedby="controls">
           Tu navegador necesita soporte para Canvas para ejecutar el juego.
         </canvas>
         <div class="overlay" id="overlay">
           <div class="start-card">
             <p class="eyebrow" id="overlay-kicker">UN CUY. UNA AMETRALLADORA.</p>
             <h2 id="overlay-title">Defiende<br>los Andes.</h2>
-            <p id="overlay-message">Formaciones cada 7s. Esquiva los láseres y activa tu poder con Ctrl. Desde la oleada 8 caen burbujas de jalapeño o choclo misil con explosión 3×3.</p>
+            <p id="overlay-message">Espacio dispara. Q activa jalapeño y E lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder.</p>
             <button class="primary" id="play" type="button">JUGAR <span>↗</span></button>
-            <button class="upgrade-choice" id="damage-upgrade" type="button" hidden>+ DAÑO AL CHOCLO (+1)</button>
             <button class="fullscreen-start" id="start-fullscreen" type="button">JUGAR EN PANTALLA COMPLETA ⤢</button>
             <p id="fullscreen-message" class="fullscreen-message" role="status" hidden></p>
             <small id="overlay-hint">O PRESIONA ENTER / ESPACIO</small>
           </div>
+          <!-- Panel independiente: el fondo atenuado cubre el canvas; las tarjetas no. -->
+          <section id="upgrade-modal" role="dialog" aria-modal="true" aria-labelledby="upgrade-title" aria-describedby="upgrade-hint" hidden>
+            <h2 id="upgrade-title">¡ELIGE UNA MEJORA!</h2>
+            <div class="upgrade-cards">
+              <button class="upgrade-card upgrade-speed" id="speed-upgrade" type="button" aria-label="Elegir velocidad: aumenta el movimiento un 20 por ciento">
+                <img src="assets/upgrade-speed.png" width="290" height="388" alt="Tarjeta + Velocidad: cuy corriendo" draggable="false">
+              </button>
+              <button class="upgrade-card upgrade-damage" id="damage-upgrade" type="button" aria-label="Elegir daño: aumenta el daño de cada choclo en un punto" hidden>
+                <img src="assets/upgrade-damage.png" width="292" height="388" alt="Tarjeta + Daño: cuy con mazorca explosiva" draggable="false">
+              </button>
+            </div>
+            <p id="upgrade-hint">Movimiento +20% · Daño por choclo +1</p>
+          </section>
         </div>
         <p id="reveal" class="reveal" hidden>¡IMPOSTOR REVELADO! <small>DERROTA SU VERDADERA FORMA</small></p>
       </div>
@@ -56,7 +74,10 @@
           <button type="button" data-control="ArrowRight" aria-label="Mover a la derecha">→<small>DERECHA</small></button>
         </div>
         <div class="actions">
-          <button id="touch-power" type="button" data-control="ControlLeft" aria-label="Activar poder guardado" disabled><span id="touch-power-icon">🌶</span><small>PODER</small></button>
+          <div class="touch-powers">
+            <button id="touch-jalapeno" type="button" data-control="KeyQ" aria-label="Jalapeño, 0 de 3 cargas" disabled><span aria-hidden="true">🌶️</span><b class="power-count" id="touch-jalapeno-count">0</b></button>
+            <button id="touch-missile" type="button" data-control="KeyE" aria-label="Choclo misil, 0 de 3 cargas" disabled><span aria-hidden="true">🌽🚀</span><b class="power-count" id="touch-missile-count">0</b></button>
+          </div>
           <button class="fire" type="button" data-control="Space" aria-label="Disparar choclos">✦<small>FUEGO</small></button>
         </div>
       </div>
@@ -64,7 +85,7 @@
       <div class="controls" id="controls">
         <span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> MOVER</span>
         <span><kbd>ESPACIO</kbd> DISPARAR</span>
-        <span><kbd>CTRL</kbd> PODER</span>
+        <span><kbd>Q</kbd> AJÍ · <kbd>E</kbd> MISIL</span>
         <span><kbd>P</kbd> PAUSA</span>
         <button id="restart" type="button">REINICIAR <kbd>R</kbd></button>
       </div>

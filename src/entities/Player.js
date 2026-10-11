@@ -5,6 +5,8 @@ export class Player {
   constructor(canvasWidth, canvasHeight, image, projectileImage, pilotImage) {
     this.x = canvasWidth / 2;
     this.powerTime = 0;
+    this.jalapenoCount = 0;
+    this.chocloMisilCount = 0;
     this.speedMultiplier = 1;
     this.projectileDamage = 1;
     this.resize(canvasWidth, canvasHeight);
@@ -37,6 +39,25 @@ export class Player {
   activatePower() {
     this.powerTime = 8;
     this.cooldown = 0;
+  }
+
+  // Cada poder tiene su propio límite; las cargas sobreviven entre oleadas.
+  powerCount(kind) {
+    return kind === 'jalapeno' ? this.jalapenoCount : kind === 'missile' ? this.chocloMisilCount : 0;
+  }
+
+  collectPower(kind) {
+    const key = { jalapeno: 'jalapenoCount', missile: 'chocloMisilCount' }[kind];
+    if (!key || this[key] >= 3) return false;
+    this[key] += 1;
+    return true;
+  }
+
+  consumePower(kind) {
+    const key = { jalapeno: 'jalapenoCount', missile: 'chocloMisilCount' }[kind];
+    if (!key || this[key] <= 0) return false;
+    this[key] -= 1;
+    return true;
   }
 
   upgradeSpeed() {

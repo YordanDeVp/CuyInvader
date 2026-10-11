@@ -6,10 +6,10 @@ export class InputHandler {
     this.buttons = [...document.querySelectorAll('[data-control]')];
     this.controller = new AbortController();
     const options = { signal: this.controller.signal };
-    const codes = new Set(['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'Enter', 'KeyP', 'Escape', 'KeyR', 'ControlLeft', 'ControlRight']);
+    const codes = new Set(['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'Enter', 'KeyP', 'Escape', 'KeyR', 'KeyQ', 'KeyE']);
     window.addEventListener('keydown', (event) => {
       if (!codes.has(event.code) || event.altKey || event.metaKey) return;
-      if (event.ctrlKey && ['KeyR', 'KeyP'].includes(event.code)) return;
+      if (event.ctrlKey) return;
       if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (event.target.closest?.('button') && ['Enter', 'Space'].includes(event.code)) return;
       event.preventDefault();
@@ -27,6 +27,7 @@ export class InputHandler {
       const code = button.dataset.control;
       // Un identificador por dedo permite mover y disparar a la vez.
       button.addEventListener('touchstart', (event) => {
+        if (button.disabled) return;
         event.preventDefault();
         for (const touch of event.changedTouches) this.touches.set(touch.identifier, code);
         onAction(code);
@@ -41,12 +42,16 @@ export class InputHandler {
       }
       // Ratón y lápiz usan capture; ignoramos el pointer duplicado de los toques.
       button.addEventListener('pointerdown', (event) => {
-        if (event.pointerType === 'touch') return;
+        if (event.pointerType === 'touch' || button.disabled) return;
         event.preventDefault();
         button.setPointerCapture(event.pointerId);
         this.pointers.set(event.pointerId, code);
         onAction(code);
         this.refreshButtons();
+      }, options);
+      // Activación accesible de poderes con Enter/Espacio sobre el botón.
+      button.addEventListener('click', (event) => {
+        if (event.detail === 0 && !button.disabled && ['KeyQ', 'KeyE'].includes(code)) onAction(code);
       }, options);
       for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
         button.addEventListener(name, (event) => {

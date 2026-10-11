@@ -32,7 +32,7 @@ export class Enemy {
   // La densidad crece hasta 72 tropas; la vida y la velocidad siguen aumentando.
   static layout(wave, width, height, playerY = height - (width <= 640 ? 64.5 : 86) - 28, retainedCount = null) {
     const mobile = width <= 640;
-    const gap = 12;
+    let gap = 12;
     const startY = 8; // Offset superior: primera fila a ocho píxeles del borde.
     const safetyMargin = 96;
     const spawnLimit = playerY - safetyMargin;
@@ -49,6 +49,11 @@ export class Enemy {
     // nunca enemigos vivos durante una transición. Su vida sigue escalando.
     const count = retainedCount ?? Math.min(72, 36 + (wave - 1) * 4, Math.floor(maxRows * availableColumns / 2));
     const triangleRows = Math.ceil(count * 2 / availableColumns);
+    // En móviles muy bajos, conservar tropas al rotar requiere comprimir
+    // también el hueco vertical. Nunca se empujan enemigos contra el cuy.
+    if (retainedCount !== null) {
+      gap = Math.min(gap, Math.max(0, (availableHeight - triangleRows * 8) / Math.max(1, triangleRows - 1)));
+    }
     // Al rotar la pantalla conservamos las tropas y sus índices; ajustamos el
     // tamaño, no el número de enemigos pendientes de la oleada en curso.
     size = Math.min(size, Math.max(1, (availableHeight - (triangleRows - 1) * gap) / triangleRows));

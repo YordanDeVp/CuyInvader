@@ -45,6 +45,19 @@ test('las tres formaciones conservan el mismo límite inferior sin superponer fi
   }
 });
 
+test('al girar a un móvil bajo se conservan las tropas dentro de la zona segura', () => {
+  const player = new Player(600, 420);
+  for (const wave of [8, 12, 20]) {
+    const original = Enemy.layout(wave, 1200, 800);
+    const compact = Enemy.layout(wave, 600, 420, player.y, original.count);
+    for (const form of ['grid', 'triangle', 'crescent']) {
+      const slots = Enemy.slotsForFormation(form, compact);
+      assert.equal(slots.length, original.count);
+      assert.ok(Math.max(...slots.map(s => compact.startY + s.y + compact.size / 2)) <= player.y - 96 + 1e-6);
+    }
+  }
+});
+
 test('el cuy móvil usa el borde inferior del canvas: el gamepad ya está fuera', () => {
   const player = new Player(600, 660);
   assert.equal(660 - player.y - player.height, 28);
@@ -234,28 +247,74 @@ test('probabilidad 50/50 e intervalos aleatorios dentro de 10–15 segundos', (t
   }
 });
 
-test('recoger un misil lo guarda sin disparar y Ctrl consume una sola carga', () => {
+test('dos inventarios independientes: Q y E consumen solo su poder', () => {
   const game = session(8);
   const box = game.player.hitbox;
   game.spawnPowerUp('missile', box.x + box.width / 2, box.y);
   game.updatePowerUps(0);
-  assert.equal(game.inventory, 'missile');
+  assert.equal(game.player.chocloMisilCount, 1);
   assert.equal(game.projectiles.length, 0);
   game.spawnPowerUp('jalapeno', box.x + box.width / 2, box.y);
   game.updatePowerUps(0);
-  assert.equal(game.inventory, 'missile');
-  assert.equal(game.powerUps.length, 1);
-  game.handleAction('ControlLeft');
-  assert.equal(game.inventory, null);
+  assert.equal(game.player.jalapenoCount, 1);
+  assert.equal(game.powerUps.length, 0);
+  game.handleAction('KeyE');
+  assert.equal(game.player.chocloMisilCount, 0);
+  assert.equal(game.player.jalapenoCount, 1);
   assert.equal(game.projectiles.length, 1);
   assert.equal(game.projectiles[0].isMissile, true);
   assert.ok(game.projectiles[0].width >= 36);
-  game.handleAction('ControlLeft');
+  game.handleAction('KeyE');
   assert.equal(game.projectiles.length, 1);
-  game.updatePowerUps(0);
-  game.activatePowerUp();
+  game.handleAction('KeyQ');
+  assert.equal(game.player.jalapenoCount, 0);
   assert.equal(game.player.powerTime, 8);
   assert.equal(game.player.shoot().length, 3);
+});
+
+test('cada poder admite 3 cargas; cada drop excedente otorga exactamente 100 puntos', () => {
+  const game = session(8);
+  const score = game.score;
+  const box = game.player.hitbox;
+  for (const kind of ['jalapeno', 'missile']) {
+    for (let i = 0; i < 5; i += 1) game.spawnPowerUp(kind, box.x + box.width / 2, box.y);
+  }
+  game.updatePowerUps(0);
+  assert.equal(game.player.jalapenoCount, 3);
+  assert.equal(game.player.chocloMisilCount, 3);
+  assert.equal(game.score, score + 400);
+  assert.equal(game.powerUps.length, 0);
+  game.updatePowerUps(0);
+  assert.equal(game.score, score + 400);
+  for (let i = 0; i < 5; i += 1) game.handleAction('KeyE');
+  assert.equal(game.projectiles.length, 3);
+  assert.equal(game.player.chocloMisilCount, 0);
+  assert.equal(game.player.jalapenoCount, 3);
+});
+
+test('pausa y jalapeño activo no gastan cargas; las oleadas conservan ambas reservas', () => {
+  const game = session(8);
+  game.player.collectPower('jalapeno');
+  game.player.collectPower('jalapeno');
+  game.player.collectPower('missile');
+  game.state = GameState.PAUSED;
+  game.handleAction('KeyQ'); game.handleAction('KeyE');
+  assert.equal(game.player.jalapenoCount, 2);
+  assert.equal(game.player.chocloMisilCount, 1);
+  game.state = GameState.PLAYING;
+  game.handleAction('KeyQ'); game.handleAction('KeyQ');
+  assert.equal(game.player.jalapenoCount, 1);
+  assert.equal(game.player.powerTime, 8);
+  game.spawnWave();
+  assert.equal(game.player.jalapenoCount, 1);
+  assert.equal(game.player.chocloMisilCount, 1);
+  game.player.update(8, game.input, game.canvas.width);
+  game.handleAction('KeyQ');
+  assert.equal(game.player.jalapenoCount, 0);
+  assert.equal(game.player.powerTime, 8);
+  game.reset();
+  assert.equal(game.player.jalapenoCount, 0);
+  assert.equal(game.player.chocloMisilCount, 0);
 });
 
 test('el impacto de un misil elimina el bloque 3×3 una sola vez y deja fuera al resto', () => {

@@ -23,13 +23,14 @@ Abre [http://localhost:8000](http://localhost:8000) en el navegador. En VS Code 
 | Iniciar | `Enter` o `Espacio` |
 | Mover la ametralladora | `←` / `→` o `A` / `D` |
 | Disparar choclos | Mantener `Espacio` |
-| Activar el poder guardado (jalapeño o misil) | `Ctrl` o botón del inventario |
+| Activar jalapeño | `Q` o su slot del inventario |
+| Lanzar choclo misil | `E` o su slot del inventario |
 | Pausar o reanudar | `P` o `Esc` |
 | Reiniciar | `R` |
 | Iniciar en pantalla completa | **Jugar en pantalla completa** en el menú |
 | Ampliar la pantalla durante la partida | Botón **Ampliar** del juego |
 
-En móviles el mundo cambia a formato vertical. El gamepad de cuatro botones aparece en una franja debajo del canvas para que los controles no cubran la partida. El botón de pantalla completa solicita ocultar la interfaz del navegador antes de iniciar. Si el navegador no admite la API o rechaza la solicitud, el menú muestra un aviso y permite usar **Jugar**. Al girar el dispositivo la partida se pausa y conserva su progreso.
+En móviles el mundo cambia a formato vertical. El gamepad tiene dos direcciones a la izquierda y, a la derecha, Fuego grande debajo de dos poderes circulares con contador. Aparece en una franja debajo del canvas para que los controles no cubran la partida. El botón de pantalla completa solicita ocultar la interfaz del navegador antes de iniciar. Si el navegador no admite la API o rechaza la solicitud, el menú muestra un aviso y permite usar **Jugar**. Al girar el dispositivo la partida se pausa y conserva su progreso.
 
 ## Cómo se juega
 
@@ -39,9 +40,9 @@ En móviles el mundo cambia a formato vertical. El gamepad de cuatro botones apa
 - Desde la oleada 7, si el impostor sobrevive 12 segundos tras revelarse, invoca cuatro secuaces una sola vez. Descienden hacia el cuy, pueden destruirse con choclos y causan daño por contacto. Su tamaño sube un 8 % por oleada hasta el límite de 2,2×; ganan un punto de vida cada dos oleadas. No cuentan como guardianes para el jalapeño. La oleada termina cuando no quedan tropas, guardianes ni secuaces.
 - La formación cambia suavemente cada **7 segundos** entre **bloque**, **triángulo** y **semiluna**, conservando el reloj entre oleadas y sin contar las pausas. Todas usan la misma franja vertical: cambiar de forma no adelanta el límite inferior hacia el cuy.
 - Cada **10 segundos** los guardianes disparan dos láseres teledirigidos (tres para el impostor revelado), con un segundo de aviso. Su giro se limita a 0,72 radianes por segundo y su rastreo dura como máximo **1,5 segundos**; después conservan el rumbo hasta impactar o salir del lienzo.
-- Cada cinco guardianes derrotados en total cae un jalapeño. Atrápalo para guardarlo en el inventario; pulsa Ctrl o el botón 🌶 para activar ocho segundos de disparo triple y rápido de **choclos en llamas**, con aura de fuego. No se activa al recogerlo. La primera fase del impostor no cuenta como una derrota.
-- Desde la **oleada 8**, cae una burbuja desde arriba cada **10–15 segundos**, con un intervalo nuevo al azar tras cada caída y un 50 % de probabilidad para cada poder: jalapeño o **choclo misil gigante**. El reloj se conserva entre oleadas y se detiene en las pausas y mejoras. El inventario tiene una ranura; si está llena, los objetos siguen cayendo sin sustituir el guardado.
-- El misil se lanza con **Ctrl/Poder** y causa **4× el daño actual del choclo** en un área de **3×3 celdas del bloque** centrada en el enemigo impactado. Afecta también a guardianes y secuaces; respeta la revelación del impostor, la puntuación y los drops. Su explosión es instantánea y se dibuja durante 0,35 segundos.
+- Cada cinco guardianes derrotados en total cae un jalapeño. Atrápalo para guardarlo en el inventario; pulsa Q o el botón 🌶 para activar ocho segundos de disparo triple y rápido de **choclos en llamas**, con aura de fuego. No se activa al recogerlo. La primera fase del impostor no cuenta como una derrota.
+- Desde la **oleada 8**, cae una burbuja desde arriba cada **10–15 segundos**, con un intervalo nuevo al azar tras cada caída y un 50 % de probabilidad para cada poder: jalapeño o **choclo misil gigante**. El reloj se conserva entre oleadas y se detiene en las pausas y mejoras. El jugador guarda hasta 3 cargas de cada poder por separado. Los drops excedentes se consumen y dan 100 puntos. Las cargas persisten entre oleadas y se vacían al reiniciar. Q durante el jalapeño activo no consume otra carga.
+- El misil se lanza con **E / botón del misil** y causa **4× el daño actual del choclo** en un área de **3×3 celdas del bloque** centrada en el enemigo impactado. Afecta también a guardianes y secuaces; respeta la revelación del impostor, la puntuación y los drops. Su explosión es instantánea y se dibuja durante 0,35 segundos.
 - Tienes tres puntos de resistencia. Cada impacto resta uno y concede un instante de invulnerabilidad.
 - Al despejar una oleada comienza la siguiente de inmediato, salvo cuando toca elegir una mejora. La formación enemiga se mueve lateralmente un 10 % más rápido en cada oleada. Al rebotar baja 8 píxeles, con un mínimo de tres segundos entre descensos para que los márgenes estrechos no precipiten la derrota.
 - Antes de las oleadas **4, 7, 10…**, cuando aumenta la vida de las tropas, el juego ofrece una mejora: **+20 % de velocidad** del cuy o **+1 de daño** por choclo. La partida continúa tras elegir una.
@@ -57,6 +58,7 @@ En móviles el mundo cambia a formato vertical. El gamepad de cuatro botones apa
 └── src/
     ├── main.js
     ├── Game.js
+    ├── AudioManager.js
     ├── InputHandler.js
     └── entities/
         ├── Player.js
@@ -78,4 +80,15 @@ JavaScript puro, módulos ES6 y HTML5 Canvas. No utiliza bibliotecas externas ni
 
 ## Pruebas de jugabilidad
 
-Con Node.js, ejecuta `node --test tests/gameplay.test.mjs`. Las pruebas simulan la física real en móvil y PC: cambios de formación cerca del valle, espaciado y barrera de generación, ritmo de descenso, rastreo a 30/60/120 FPS, temporizador de drops, inventario, daño 3×3, fases del impostor y conservación del progreso hasta la oleada 12.
+Con Node.js, ejecuta `node --test tests/gameplay.test.mjs tests/audio.test.mjs`. Las pruebas simulan la física real en móvil y PC: cambios de formación cerca del valle, espaciado y barrera de generación, ritmo de descenso, rastreo a 30/60/120 FPS, temporizador de drops, inventario, daño 3×3, fases del impostor y conservación del progreso hasta la oleada 12.
+
+## Audio y tarjetas de mejoras
+
+`src/AudioManager.js` usa HTMLAudioElement. El primer gesto del usuario habilita la reproducción. La BGM normal acelera un 1,5 % por oleada hasta 1,35×. Al revelarse un impostor desde la oleada 7 cambia a BGM de jefe; vuelve a la normal cuando muere. Al activar Q/E suenan el efecto y un jingle que atenúa temporalmente la BGM. Pausa, mejoras, derrota y pestaña oculta detienen el audio; el botón SONIDO permite silenciarlo.
+
+Las pistas WAV originales incluidas se sintetizan con `node scripts/generate-audio.mjs`, sin dependencias ni descargas. Se pueden reemplazar por grabaciones propias manteniendo las rutas, o editar el mapa FILES de AudioManager:
+
+- `assets/audio/bgm-normal.wav`, `bgm-boss.wav`, `bgm-powerup.wav`.
+- `assets/audio/shoot.wav`, `explosion.wav`, `powerup-collect.wav`, `powerup-use.wav`.
+
+Las tarjetas usan exactamente los PNG suministrados: `assets/upgrade-speed.png` y `assets/upgrade-damage.png`, dentro de botones con `<img>` y `object-fit: contain`. El área completa es clicable y se conserva el modal compacto. Las mejoras siguen siendo +20 % de movimiento o +1 de daño por choclo; el texto artístico de los PNG menciona disparos rápidos y bombas, pero el ataque 3×3 sigue siendo el poder del misil, no una mejora permanente.
