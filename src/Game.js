@@ -227,8 +227,11 @@ export class Game {
       if (generation !== this.runGeneration) return;
       this.sessionToken = token;
       this.leaderboard?.setRunToken(token);
-    }).catch(() => {
+    }).catch((error) => {
       if (generation !== this.runGeneration) return;
+      if (typeof window !== 'undefined') {
+        console.error('[Cuy Invaders] No se pudo crear la sesión de partida:', error);
+      }
       this.sessionToken = null;
       this.leaderboard?.setRunToken(null, 'No se pudo validar esta partida. El puntaje no podrá publicarse.');
     });

@@ -125,6 +125,67 @@ test('POST normaliza el nombre y añade el run_id privado', async (t) => {
   assert.match(inserted.run_id, /^[0-9a-f-]{36}$/i);
 });
 
+test('al presionar Guardar, el cliente envía nombre, puntaje y oleada y el servidor los inserta', async (t) => {
+  class Element {
+    constructor() { this.children = []; this.listeners = {}; this.classList = { toggle() {} }; this.textContent = ''; this.value = ''; }
+    addEventListener(name, callback) { this.listeners[name] = callback; }
+    replaceChildren(...children) { this.children = children.length === 1 && children[0].children ? children[0].children : children; }
+    append(child) { this.children.push(child); }
+    reset() { this.value = ''; }
+    reportValidity() { return true; }
+    focus() {}
+    setAttribute() {}
+  }
+  const elements = new Map();
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const previousFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+    getElementById: (id) => elements.get(id) ?? (elements.set(id, new Element()), elements.get(id)),
+    createElement: () => new Element(), createDocumentFragment: () => new Element(),
+  } });
+  t.after(() => {
+    if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document;
+    if (previousFetch) Object.defineProperty(globalThis, 'fetch', previousFetch); else delete globalThis.fetch;
+  });
+
+  const db = database();
+  const { url, issueToken, advance } = await fixture(t, db);
+  const nativeFetch = globalThis.fetch;
+  const clientRequests = [];
+  globalThis.fetch = async (input, options = {}) => {
+    const target = new URL(input, url);
+    clientRequests.push({ path: target.pathname, method: options.method ?? 'GET' });
+    return nativeFetch(target, options);
+  };
+
+  const token = await issueToken();
+  advance(minimumRunDurationMs(3));
+  const board = new Leaderboard();
+  board.setRunToken(token);
+  board.sync('over', 2410, 3);
+  board.nameInput.value = 'Yordan';
+  let pendingSave;
+  const submit = board.submit.bind(board);
+  board.submit = () => { pendingSave = submit(); return pendingSave; };
+
+  board.form.listeners.submit({ preventDefault() {} });
+  await pendingSave;
+
+  const inserted = db.calls.find(([method]) => method === 'insert')?.[1];
+  assert.deepEqual(
+    { name: inserted?.name, score: inserted?.score, wave: inserted?.wave },
+    { name: 'Yordan', score: 2410, wave: 3 },
+  );
+  assert.match(inserted.run_id, /^[0-9a-f-]{36}$/i);
+  assert.deepEqual(clientRequests, [
+    { path: '/api/game-session', method: 'POST' },
+    { path: '/api/leaderboard', method: 'POST' },
+    { path: '/api/leaderboard', method: 'GET' },
+  ]);
+  assert.equal(board.sent, true);
+  assert.equal(board.rankingCard.hidden, false);
+});
+
 test('requiere ticket firmado y hace idempotente el mismo envío, rechazando cambios', async (t) => {
   const { post, issueToken, db } = await fixture(t);
   const token = await issueToken();

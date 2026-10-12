@@ -12,7 +12,7 @@ npm ci
 npm start
 ```
 
-Abre [http://localhost:3000](http://localhost:3000). En una base nueva, aplica las cuatro migraciones de `supabase/migrations/` en orden. La base de producción CuyInvader ya tiene aplicadas las migraciones de nombre único y permisos; la migración `leaderboard_name_only` conserva los nombres existentes al combinar `first_name` y `last_name` en `name`. El ranking requiere una base configurada; el juego sigue siendo JavaScript y Canvas sin compilación.
+Abre [http://localhost:3000](http://localhost:3000). La base de producción CuyInvader ya tiene aplicadas las migraciones de nombre único y permisos; los scripts SQL de administración no se incluyen en el repositorio público ni en el despliegue del juego. Conserva una copia privada si necesitas inicializar otra base. El ranking requiere una base configurada; el juego sigue siendo JavaScript y Canvas sin compilación.
 
 ## Leaderboard global y despliegue
 
@@ -80,7 +80,6 @@ En móviles el mundo cambia a formato vertical. Si se gira el teléfono a horizo
 ├── server.js
 ├── package.json
 ├── render.yaml
-├── supabase/migrations/
 ├── assets/
 └── src/
     ├── main.js

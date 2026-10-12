@@ -8,10 +8,16 @@ async function request(options = {}) {
       ? AbortSignal.any([fetchOptions.signal, timeout])
       : fetchOptions.signal ?? timeout;
     response = await fetch(url ?? '/api/leaderboard', { ...fetchOptions, signal, cache: 'no-store' });
-  } catch {
-    throw new Error(options.method === 'POST'
+  } catch (cause) {
+    const error = new Error(options.method === 'POST'
       ? 'No se pudo confirmar el envío. Consulta el ranking antes de reintentar.'
       : 'No hay conexión con el ranking. Inténtalo de nuevo.');
+    // Conserva el error de red/CORS real para que el log temporal del flujo de
+    // sesión permita distinguirlo de un 404 o de una respuesta HTTP inválida.
+    error.cause = cause;
+    error.endpoint = url ?? '/api/leaderboard';
+    error.method = fetchOptions.method ?? 'GET';
+    throw error;
   }
   const data = await response.json().catch(() => null);
   const accepted = expectedStatuses ? expectedStatuses.includes(response.status) : response.ok;
