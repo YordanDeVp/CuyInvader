@@ -8,7 +8,7 @@ El juego y la API del ranking se sirven desde el mismo proceso de Node.js (22 o 
 
 ```bash
 npm ci
-# Copia .env.example a .env y configura las variables del servidor.
+# Configura SUPABASE_URL, SUPABASE_SERVICE_KEY y GAME_SESSION_SECRET en el entorno local.
 npm start
 ```
 
@@ -34,7 +34,7 @@ El servicio anterior de Render es un **Static Site** y no ejecuta Express. `rend
 
 En Render crea un **Web Service** conectado al repositorio y rama correctos, o usa Blueprint con `render.yaml`. Pon `npm ci` como **Build Command** y `npm start` como **Start Command**. Render inyecta `PORT`; no fijes uno manual. El servidor escucha en `0.0.0.0`. Las rutas `/`, `/src/`, `/assets/` y `/api/*` salen del mismo origen, así que no se necesita CORS ni un proxy de navegador adicional. Comprueba `https://<servicio>.onrender.com/api/health`. La URL de Static Site existente seguirá devolviendo 404 en `/api/*`; para conservarla hay que migrar el dominio al Web Service.
 
-En Render configura `SUPABASE_URL` (URL HTTPS del proyecto), `SUPABASE_SERVICE_KEY` (clave secreta de servidor, nunca `anon`/publishable), `GAME_SESSION_SECRET` (32 bytes aleatorios o más) y `TRUST_PROXY_HOPS=1`. `NODE_VERSION=22` ya está en `render.yaml`; Render proporciona `PORT` automáticamente. Para desarrollo, copia `.env.example` a `.env`, pon `TRUST_PROXY_HOPS=0` y no subas `.env` a Git.
+En Render configura `SUPABASE_URL` (URL HTTPS del proyecto), `SUPABASE_SERVICE_KEY` (clave secreta de servidor, nunca `anon`/publishable), `GAME_SESSION_SECRET` (32 bytes aleatorios o más) y `TRUST_PROXY_HOPS=1`. `NODE_VERSION=22` ya está en `render.yaml`; Render proporciona `PORT` automáticamente. Para desarrollo local, define esas variables en `.env`, pon `TRUST_PROXY_HOPS=0` y no subas `.env` a Git.
 
 El servidor solo expone `/`, `/index.html`, `/style.css`, `/src/` y `/assets/`. No sirve `.env`, SQL, archivos del servidor, tests ni `node_modules`.
 
