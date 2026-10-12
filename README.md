@@ -4,17 +4,41 @@ Un arcade de supervivencia inspirado en *Space Invaders*, con sabor andino. Mane
 
 ## Jugar
 
-El proyecto no necesita instalar dependencias. Sirve la carpeta del proyecto mediante HTTP para cargar los módulos de JavaScript:
+El juego y la API del ranking se sirven desde el mismo proceso de Node.js (22 o superior):
 
 ```bash
-# Windows (PowerShell o CMD)
-py -m http.server 8000
-
-# macOS o Linux
-python3 -m http.server 8000
+npm ci
+# Copia .env.example a .env y configura las variables del servidor.
+npm start
 ```
 
-Abre [http://localhost:8000](http://localhost:8000) en el navegador. En VS Code también puedes abrir `index.html` con la extensión Live Server.
+Abre [http://localhost:3000](http://localhost:3000). En una base nueva, aplica las cuatro migraciones de `supabase/migrations/` en orden. La base de producción CuyInvader ya tiene aplicadas las migraciones de nombre único y permisos; la migración `leaderboard_name_only` conserva los nombres existentes al combinar `first_name` y `last_name` en `name`. El ranking requiere una base configurada; el juego sigue siendo JavaScript y Canvas sin compilación.
+
+## Leaderboard global y despliegue
+
+- `server.js`: Express + SDK oficial `@supabase/supabase-js`. Usa `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` solo en servidor; `.env` está ignorado por Git. Nunca coloques la clave en `src/`, HTML o assets.
+- SQL: UUID automático, nombre, puntaje BIGINT, oleada y fecha UTC. Índice por `score DESC, created_at ASC, id ASC`. RLS sin políticas y sin permisos para `anon`, `authenticated` ni `PUBLIC`; `service_role` solo recibe SELECT/INSERT en esta tabla. El permiso EXECUTE directo de esos roles sobre `public.rls_auto_enable()` también está revocado; su event trigger sigue activo como `postgres`.
+- `POST /api/game-session` emite un ticket de partida firmado por el servidor. Al terminar, `POST /api/leaderboard` recibe `{name,score,wave,runToken}`; valida firma, vencimiento, tiempo mínimo, límite superior y ticket único. Reintentar el mismo payload devuelve el puntaje previamente guardado; reutilizar el ticket con otro resultado se rechaza. `GET /api/leaderboard` devuelve el Top 10 con empates resueltos por fecha y UUID. El nombre admite hasta 30 caracteres; puntaje entero seguro y oleada 1–10000. `src/GameRules.js` comparte el balance y las cotas.
+- `src/api.js` solo usa fetch. `src/Leaderboard.js` muestra el formulario únicamente al terminar. El único campo es Nombre (hasta 30 caracteres); se puede escribir también el apellido dentro del mismo campo. Guardar abre un recuadro separado con el Top 10. Si falla el envío, `finally` vuelve a habilitar el campo y el botón para que se reintente.
+- API: 60 lecturas, 20 solicitudes de sesión y 5 publicaciones por minuto por IP; cuerpo máximo 2 KB, tiempos de espera y errores sin detalles internos. `TRUST_PROXY_HOPS=0` local y `1` detrás del proxy de Render. El rate limiter admite `rateLimitStoreFactory` para inyectar un store Redis distinto por middleware; hoy usa memoria local y no comparte contadores entre réplicas.
+- Los tickets HMAC impiden inventar una sesión firmada y evitan repetir o cambiar un resultado ya guardado. El mínimo temporal es 15 segundos iniciales más 15 por oleada. El navegador todavía informa el resultado: un atacante puede esperar ese tiempo y fabricar datos dentro de las cotas. Esto **no certifica partidas para premios**. No pongas un secreto HMAC en el frontend: cualquier jugador podría extraerlo. Para competir por premios, ejecuta la simulación en servidor y valida una reproducción determinista de las entradas antes de aceptar puntajes.
+
+El servicio anterior de Render es un **Static Site** y no ejecuta Express. `render.yaml` prepara un NUEVO **Web Service** que sirve juego y API juntos: runtime Node 22, build `npm ci`, start `npm start`, health check `/api/health`. En el panel de Render configura:
+
+| Variable | Valor |
+| --- | --- |
+| `SUPABASE_URL` | URL HTTPS del proyecto Supabase CuyInvader |
+| `SUPABASE_SERVICE_KEY` | Clave secreta de servidor `service_role`; nunca la clave `anon` ni una clave `sb_publishable` |
+| `GAME_SESSION_SECRET` | Secreto aleatorio único de al menos 32 bytes. Genera con `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` |
+| `TRUST_PROXY_HOPS` | `1` en Render para que el límite use la IP real detrás del proxy |
+
+En Render crea un **Web Service** conectado al repositorio y rama correctos, o usa Blueprint con `render.yaml`. Pon `npm ci` como **Build Command** y `npm start` como **Start Command**. Render inyecta `PORT`; no fijes uno manual. El servidor escucha en `0.0.0.0`. Las rutas `/`, `/src/`, `/assets/` y `/api/*` salen del mismo origen, así que no se necesita CORS ni un proxy de navegador adicional. Comprueba `https://<servicio>.onrender.com/api/health`. La URL de Static Site existente seguirá devolviendo 404 en `/api/*`; para conservarla hay que migrar el dominio al Web Service.
+
+En Render configura `SUPABASE_URL` (URL HTTPS del proyecto), `SUPABASE_SERVICE_KEY` (clave secreta de servidor, nunca `anon`/publishable), `GAME_SESSION_SECRET` (32 bytes aleatorios o más) y `TRUST_PROXY_HOPS=1`. `NODE_VERSION=22` ya está en `render.yaml`; Render proporciona `PORT` automáticamente. Para desarrollo, copia `.env.example` a `.env`, pon `TRUST_PROXY_HOPS=0` y no subas `.env` a Git.
+
+El servidor solo expone `/`, `/index.html`, `/style.css`, `/src/` y `/assets/`. No sirve `.env`, SQL, archivos del servidor, tests ni `node_modules`.
+
+Verifica en Supabase, después de ejecutar la migración: RLS activo, cero filas en `pg_policies` para `public.leaderboard`, ningún SELECT/INSERT permitido a `anon` o `authenticated`. Ejecutar el SQL es un paso de configuración real, distinto de las pruebas locales con cliente simulado.
 
 ## Controles
 
@@ -27,19 +51,18 @@ Abre [http://localhost:8000](http://localhost:8000) en el navegador. En VS Code 
 | Lanzar choclo misil | `E` o `Shift`, o su slot del inventario |
 | Pausar o reanudar | `P` o `Esc` |
 | Reiniciar | `R` |
-| Iniciar en pantalla completa | **Jugar en pantalla completa** en el menú |
 | Ampliar la pantalla durante la partida | Botón **Ampliar** del juego |
 
-En móviles el mundo cambia a formato vertical. El gamepad tiene dos direcciones a la izquierda y, a la derecha, Fuego grande debajo de dos poderes circulares con contador. Aparece en una franja debajo del canvas para que los controles no cubran la partida. El botón de pantalla completa solicita ocultar la interfaz del navegador antes de iniciar. Si el navegador no admite la API o rechaza la solicitud, el menú muestra un aviso y permite usar **Jugar**. Al girar el dispositivo la partida se pausa y conserva su progreso.
+En móviles el mundo cambia a formato vertical. Si se gira el teléfono a horizontal, se pausa la partida, se oculta el canvas y se pide volver a vertical; al girarlo de nuevo, el jugador puede continuar desde el menú de pausa.
 
 ## Cómo se juega
 
 - El número objetivo de tropas empieza en 36 y aumenta en 4 por oleada hasta 72. Si no caben, se reduce la cantidad antes de generarlas: todas las formas respetan el límite `jugador.y - 96`. Comienzan a 8 píxeles del borde superior (los guardianes ocupan la primera fila), con al menos 12 píxeles entre sprites. Su vida es `1 + floor((oleada - 1) / 3)`; los márgenes laterales iniciales equivalen a 2,5 cabezas por lado.
-- Aparecen cuatro guardianes desde la oleada 3 y cinco desde la 5. Tienen `10 + 3 × (oleada - 3)` puntos de vida.
+- Aparecen cuatro guardianes en oleadas 3–4, cinco en oleadas 5–6 y exactamente dos jefes desde la oleada 7. Tienen `10 + 3 × (oleada - 3)` puntos de vida.
 - Un guardián aleatorio de cada oleada es un impostor. Al agotar su primera barra crece a 1,8 veces su tamaño, revela una forma oscura con ojos y bordes rojos y recupera `ceil(vida inicial × 2,2)` puntos de vida. Su derrota definitiva vale 600 puntos.
-- Desde la oleada 7, si el impostor sobrevive 12 segundos tras revelarse, invoca cuatro secuaces una sola vez. Descienden hacia el cuy, pueden destruirse con choclos y causan daño por contacto. Su tamaño sube un 8 % por oleada hasta el límite de 2,2×; ganan un punto de vida cada dos oleadas. No cuentan como guardianes para el jalapeño. La oleada termina cuando no quedan tropas, guardianes ni secuaces.
+- Desde la oleada 7, cada jefe activo invoca exactamente dos secuaces cada tres segundos. Su HP es el doble del HP de un huaco de esa oleada. Su tamaño parte del 70 % de una tropa y su multiplicador sube un 8 % por oleada hasta 2,2×. Descienden hacia el cuy, pueden destruirse con choclos y causan daño por contacto. No cuentan como guardianes para el jalapeño. La oleada termina cuando no quedan tropas, guardianes ni secuaces.
 - La formación cambia suavemente cada **7 segundos** entre **bloque**, **triángulo** y **semiluna**, conservando el reloj entre oleadas y sin contar las pausas. Todas usan la misma franja vertical: cambiar de forma no adelanta el límite inferior hacia el cuy.
-- Cada **10 segundos** los guardianes disparan dos láseres teledirigidos (tres para el impostor revelado), con un segundo de aviso. Su giro se limita a 0,72 radianes por segundo y su rastreo dura como máximo **1,5 segundos**; después conservan el rumbo hasta impactar o salir del lienzo.
+- Los guardianes disparan cada **10 segundos** antes de la oleada 7 y cada **7 segundos** desde esa oleada, con un segundo de aviso. Cada salva tiene dos láseres teledirigidos (tres para el impostor revelado). Su giro se limita a 0,72 radianes por segundo y su rastreo dura como máximo **1,5 segundos**; después conservan el rumbo hasta impactar o salir del lienzo.
 - Cada cinco guardianes derrotados en total cae un jalapeño. Atrápalo para guardarlo en el inventario; pulsa Q o Ctrl, o el botón 🌶, para activar ocho segundos de disparo triple y rápido de **choclos en llamas**, con aura de fuego. No se activa al recogerlo. La primera fase del impostor no cuenta como una derrota.
 - Desde la **oleada 8**, cae una burbuja desde arriba cada **10–15 segundos**, con un intervalo nuevo al azar tras cada caída y un 50 % de probabilidad para cada poder: jalapeño o **choclo misil gigante**. El reloj se conserva entre oleadas y se detiene en las pausas y mejoras. El jugador guarda hasta 3 cargas de cada poder por separado. Los drops excedentes se consumen y dan 100 puntos. Las cargas persisten entre oleadas y se vacían al reiniciar. Q durante el jalapeño activo no consume otra carga.
 - El misil se lanza con **E**, **Shift** o el botón del misil y causa **4× el daño actual del choclo** en un área de **3×3 celdas del bloque** centrada en el enemigo impactado. Afecta también a guardianes y secuaces; respeta la revelación del impostor, la puntuación y los drops. Su explosión es instantánea y se dibuja durante 0,35 segundos.
@@ -54,9 +77,15 @@ En móviles el mundo cambia a formato vertical. El gamepad tiene dos direcciones
 .
 ├── index.html
 ├── style.css
+├── server.js
+├── package.json
+├── render.yaml
+├── supabase/migrations/
 ├── assets/
 └── src/
     ├── main.js
+    ├── api.js
+    ├── Leaderboard.js
     ├── Game.js
     ├── AudioManager.js
     ├── InputHandler.js
@@ -76,11 +105,11 @@ Cada entidad usa `ctx.drawImage()` y conserva un dibujo con rectángulos de colo
 
 ## Tecnologías
 
-JavaScript puro, módulos ES6 y HTML5 Canvas. No utiliza bibliotecas externas ni un proceso de compilación.
+Cliente: JavaScript puro, módulos ES6 y HTML5 Canvas, sin compilación. Servidor: Node.js, Express, dotenv, Supabase JS, Helmet y express-rate-limit.
 
 ## Pruebas de jugabilidad
 
-Con Node.js, ejecuta `node --test tests/gameplay.test.mjs tests/audio.test.mjs`. Las pruebas simulan la física real en móvil y PC: cambios de formación cerca del valle, espaciado y barrera de generación, ritmo de descenso, rastreo a 30/60/120 FPS, temporizador de drops, inventario, daño 3×3, fases del impostor y conservación del progreso hasta la oleada 12.
+Ejecuta `npm test`. Las pruebas simulan la física real en móvil y PC, el audio y la API de ranking con un cliente Supabase simulado (no necesitan claves ni escriben en producción). Incluyen firma, vencimiento, duración mínima, cota de puntaje, reenvío, orden/límite del Top 10, errores, rate limiting y bloqueo de rutas privadas.
 
 ## Audio y tarjetas de mejoras
 

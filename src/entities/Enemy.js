@@ -1,6 +1,6 @@
 import { Projectile } from './Projectile.js';
+import { ENDGAME_WAVE, SUMMON_INTERVAL, MINION_POINTS, guardianCountForWave } from '../GameRules.js';
 
-const MINION_DELAY = 12;
 const DESCENT_INTERVAL = 3;
 
 export class Enemy {
@@ -10,8 +10,7 @@ export class Enemy {
     this.isImpostor = impostor;
     this.isTrueForm = false;
     this.wave = wave;
-    this.revealedElapsed = 0;
-    this.hasSummoned = false;
+    this.summonElapsed = 0;
     this.sprite = sprite;
     this.index = index;
     this.alive = true;
@@ -25,7 +24,7 @@ export class Enemy {
     this.setSlot(slot, true);
   }
 
-  static guardianCount(wave) { return wave >= 5 ? 5 : wave >= 3 ? 4 : 0; }
+  static guardianCount(wave) { return guardianCountForWave(wave); }
   static speedForWave(wave) { return 64 * 1.1 ** (wave - 1); }
   static troopHealthForWave(wave) { return 1 + Math.floor((wave - 1) / 3); }
 
@@ -145,13 +144,13 @@ export class Enemy {
     this.y = formation.y + this.offsetY - this.height / 2;
     this.flash = Math.max(0, this.flash - dt);
     this.revealTime = Math.max(0, this.revealTime - dt);
-    if (this.alive && this.isTrueForm) this.revealedElapsed += dt;
+    if (this.alive && this.isBoss && this.wave >= ENDGAME_WAVE) this.summonElapsed += dt;
   }
 
-  // Una única invocación, 12 segundos después de revelarse, desde la oleada 7.
+  // Desde la oleada 7 cada jefe conserva su reloj de invocación independiente.
   consumeSummon() {
-    if (!this.alive || !this.isTrueForm || this.wave < 7 || this.hasSummoned || this.revealedElapsed + 1e-9 < MINION_DELAY) return false;
-    this.hasSummoned = true;
+    if (!this.alive || !this.isBoss || this.wave < ENDGAME_WAVE || this.summonElapsed + 1e-9 < SUMMON_INTERVAL) return false;
+    this.summonElapsed = Math.max(0, this.summonElapsed - SUMMON_INTERVAL);
     return true;
   }
 
@@ -163,7 +162,6 @@ export class Enemy {
     if (this.isImpostor && !this.isTrueForm) {
       // La primera barra revela al impostor; solo su derrota definitiva cuenta.
       this.isTrueForm = true;
-      this.revealedElapsed = 0;
       this.maxHealth = Math.ceil(this.maxHealth * 2.2);
       this.health = this.maxHealth;
       this.x -= this.width * 0.4;
@@ -262,15 +260,16 @@ export class Minion extends Enemy {
     this.y = y;
     const progression = Math.max(0, wave - 7);
     this.sizeMultiplier = Math.min(2.2, 1 + progression * 0.08);
-    this.maxHealth = 1 + Math.floor(progression / 2);
+    const huacoHealth = Enemy.troopHealthForWave(wave);
+    this.maxHealth = huacoHealth * 2;
     this.health = this.maxHealth;
-    this.points = 15;
+    this.points = MINION_POINTS;
     this.resize(layout);
   }
 
   resize(layout) {
     super.resize(layout);
-    this.width *= 0.7 * (this.sizeMultiplier ?? 1);
+    this.width *= 0.7;
     this.height = this.width;
     this.speed = layout.mobile ? 90 : 110;
   }

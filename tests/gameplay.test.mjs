@@ -96,6 +96,39 @@ test('oleadas 4, 7 y 10 permiten al menos 20 segundos de maniobra en móvil y PC
   }
 });
 
+test('el modo horizontal bloquea el Canvas, pausa la partida y no se reanuda solo al volver a vertical', (t) => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  let landscape = true;
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+    matchMedia: (query) => {
+      assert.match(query, /orientation: landscape/);
+      return { matches: landscape };
+    },
+  } });
+  t.after(() => {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+    else delete globalThis.window;
+  });
+
+  const overlay = { hidden: true };
+  const game = Object.create(Game.prototype);
+  game.ui = { 'orientation-overlay': overlay };
+  game.input = { clear() { this.cleared = true; } };
+  game.state = GameState.PLAYING;
+  game.pause = () => { game.state = GameState.PAUSED; };
+  game.updateOrientation();
+  assert.equal(game.orientationBlocked, true);
+  assert.equal(overlay.hidden, false);
+  assert.equal(game.input.cleared, true);
+  assert.equal(game.state, GameState.PAUSED);
+
+  landscape = false;
+  game.updateOrientation();
+  assert.equal(game.orientationBlocked, false);
+  assert.equal(overlay.hidden, true);
+  assert.equal(game.state, GameState.PAUSED);
+});
+
 test('una salva simultánea resta una vida; perder conserva puntaje y oleada', () => {
   const game = session(4);
   const hit = () => {
@@ -290,6 +323,50 @@ test('cada poder admite 3 cargas; cada drop excedente otorga exactamente 100 pun
   assert.equal(game.projectiles.length, 3);
   assert.equal(game.player.chocloMisilCount, 0);
   assert.equal(game.player.jalapenoCount, 3);
+});
+
+test('desde la oleada 7 aparecen dos jefes y sus láseres disparan cada siete segundos', () => {
+  assert.equal(Enemy.guardianCount(6), 5);
+  for (const wave of [7, 10, 20]) {
+    const game = session(wave);
+    assert.equal(game.layout.bosses, 2);
+    assert.equal(game.enemies.filter((enemy) => enemy.isBoss).length, 2);
+    game.updateLasers(6);
+    assert.equal(game.enemyProjectiles.length, 0);
+    game.updateLasers(1);
+    assert.equal(game.enemyProjectiles.length, 4);
+    assert.equal(game.laserElapsed, 0);
+  }
+  const early = session(6);
+  early.updateLasers(7);
+  assert.equal(early.enemyProjectiles.length, 0);
+  early.updateLasers(3);
+  assert.equal(early.enemyProjectiles.length, 10);
+});
+
+test('cada jefe de oleada 7+ invoca exactamente dos secuaces con 2x HP de huaco', () => {
+  for (const wave of [7, 10]) {
+    const game = session(wave);
+    const bosses = game.enemies.filter((enemy) => enemy.isBoss);
+    const huaco = game.enemies.find((enemy) => enemy.type === 'moche');
+    for (const boss of bosses) boss.update(2.99, game.formation);
+    game.updateSummons();
+    assert.equal(game.minions.length, 0);
+    for (const boss of bosses) boss.update(0.01, game.formation);
+    game.updateSummons();
+    assert.equal(game.minions.length, 4);
+    assert.ok(game.minions.every((minion) => minion.maxHealth === huaco.maxHealth * 2));
+    assert.ok(game.minions.every((minion) => minion.width < huaco.width));
+    game.updateSummons();
+    assert.equal(game.minions.length, 4);
+    for (const boss of bosses) boss.update(3, game.formation);
+    game.updateSummons();
+    assert.equal(game.minions.length, 8);
+    bosses[0].alive = false;
+    for (const boss of bosses) boss.update(3, game.formation);
+    game.updateSummons();
+    assert.equal(game.minions.length, 10);
+  }
 });
 
 test('pausa y jalapeño activo no gastan cargas; las oleadas conservan ambas reservas', () => {

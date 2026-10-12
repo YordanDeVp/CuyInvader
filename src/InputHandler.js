@@ -9,6 +9,8 @@ export class InputHandler {
     const codes = new Set(['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'Enter', 'KeyP', 'Escape', 'KeyR', 'KeyQ', 'KeyE',
       'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight']);
     window.addEventListener('keydown', (event) => {
+      // Escribir nombres (incluido Shift+E) nunca dispara acciones del juego.
+      if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       const key = event.key.toLowerCase();
       const powerKey = ['q', 'e', 'control', 'shift'].includes(key);
       if ((!codes.has(event.code) && !powerKey) || event.altKey || event.metaKey) return;
@@ -24,8 +26,7 @@ export class InputHandler {
         event.preventDefault();
         return;
       }
-      if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-      if (event.target.closest?.('button') && ['Enter', 'Space'].includes(event.code)) return;
+      if (event.target.closest?.('button, summary') && ['Enter', 'Space'].includes(event.code)) return;
       event.preventDefault();
       this.keys.add(event.code);
       // Q/E también funcionan en mayúsculas. Ctrl+Q y Shift+E no repiten

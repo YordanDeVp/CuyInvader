@@ -1,12 +1,14 @@
 import { InputHandler } from './InputHandler.js';
 import { AudioManager } from './AudioManager.js';
+import { Leaderboard } from './Leaderboard.js';
+import { startGameSession } from './api.js';
+import { laserIntervalForWave, MINIONS_PER_SUMMON } from './GameRules.js';
 import { Player } from './entities/Player.js';
 import { Enemy, Minion } from './entities/Enemy.js';
 
 const FORMATIONS = ['grid', 'triangle', 'crescent'];
 const NAMES = { grid: 'BLOQUE', triangle: 'TRIÁNGULO', crescent: 'SEMILUNA' };
 const FORMATION_INTERVAL = 7;
-const LASER_INTERVAL = 10;
 
 export const GameState = Object.freeze({ READY: 'ready', PLAYING: 'playing', PAUSED: 'paused', GAME_OVER: 'over', UPGRADE_MENU: 'upgrade_menu' });
 
@@ -69,12 +71,16 @@ export class Game {
     const ids = ['score', 'wave', 'speed', 'health', 'formation', 'formation-time', 'laser-time',
       'bosses', 'boss-phase', 'fullscreen', 'pause', 'status', 'overlay', 'overlay-kicker',
       'overlay-title', 'overlay-message', 'overlay-hint', 'play', 'restart', 'pause-restart', 'announcement',
+      'start-card', 'gameover-card', 'gameover-restart', 'leaderboard-card', 'leaderboard-restart', 'gameover-reason',
       'jalapeno-slot', 'missile-slot', 'jalapeno-count', 'missile-count', 'jalapeno-active', 'sound',
       'drop-progress', 'drop-time', 'touch-jalapeno', 'touch-missile', 'touch-jalapeno-count', 'touch-missile-count',
-      'reveal', 'start-fullscreen', 'fullscreen-message', 'damage-upgrade', 'speed-upgrade', 'upgrade-modal'];
+      'reveal', 'damage-upgrade', 'speed-upgrade', 'upgrade-modal'];
     this.ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+    this.ui['orientation-overlay'] = document.getElementById('orientation-overlay');
     this.assets = this.loadAssets();
     this.audio = new AudioManager();
+    // Tolera un index.html anterior que aún esté en caché al desplegar.
+    this.leaderboard = document.getElementById('leaderboard-form') ? new Leaderboard({ onRestart: () => this.restart() }) : null;
     this.input = new InputHandler((code) => this.handleAction(code));
     this.controller = new AbortController();
     const options = { signal: this.controller.signal };
@@ -88,11 +94,10 @@ export class Game {
       const speed = this.ui['speed-upgrade'];
       (document.activeElement === speed ? this.ui['damage-upgrade'] : speed)?.focus();
     }, options);
-    // Un HTML anterior puede seguir en caché unos segundos durante el despliegue.
-    this.ui['start-fullscreen']?.addEventListener('click', () => this.playFullscreen(), options);
     this.ui.pause.addEventListener('click', () => this.togglePause(), options);
     this.ui.restart.addEventListener('click', () => this.restart(), options);
     this.ui['pause-restart']?.addEventListener('click', () => this.restart(), options);
+    this.ui['gameover-restart']?.addEventListener('click', () => this.restart(), options);
     this.ui.fullscreen.addEventListener('click', () => this.toggleFullscreen(), options);
     this.ui['jalapeno-slot']?.addEventListener('click', () => this.activatePowerUp('jalapeno'), options);
     this.ui['missile-slot']?.addEventListener('click', () => this.activatePowerUp('missile'), options);
@@ -104,6 +109,7 @@ export class Game {
     document.querySelector('.arcade').addEventListener('pointerdown', () => this.audio.unlock(), { ...options, capture: true });
     document.querySelector('.arcade').addEventListener('keydown', () => this.audio.unlock(), { ...options, capture: true });
     window.addEventListener('resize', () => this.resize(), options);
+    window.addEventListener('orientationchange', () => this.updateOrientation(), options);
     window.visualViewport?.addEventListener('resize', () => this.resize(), options);
     window.addEventListener('blur', () => this.pause(), options);
     document.addEventListener('visibilitychange', () => {
@@ -116,6 +122,7 @@ export class Game {
     }, options);
     this.resize();
     this.reset('ready');
+    this.updateOrientation();
   }
 
   loadAssets() {
@@ -132,6 +139,7 @@ export class Game {
 
   // Cambiamos las coordenadas reales del mundo; no estiramos un canvas horizontal.
   resize() {
+    this.updateOrientation();
     const compact = window.matchMedia('(max-width: 768px)').matches;
     const mobile = compact || window.matchMedia('(pointer: coarse) and (orientation: portrait)').matches;
     const width = mobile ? 600 : 1200;
@@ -182,6 +190,10 @@ export class Game {
   }
 
   reset(state = 'playing') {
+    this.leaderboard?.reset();
+    this.runGeneration = (this.runGeneration ?? 0) + 1;
+    this.sessionToken = null;
+    this.leaderboard?.setRunToken(null);
     this.state = state;
     this.score = 0;
     this.wave = 0;
@@ -207,6 +219,19 @@ export class Game {
     this.player = new Player(this.canvas.width, this.canvas.height, null, this.assets.projectile, this.assets.pilot);
     this.player.resize(this.canvas.width, this.canvas.height, this.bottomSpace);
     this.spawnWave();
+    if (state === GameState.PLAYING) this.beginGameSession(this.runGeneration);
+  }
+
+  beginGameSession(generation) {
+    void startGameSession().then((token) => {
+      if (generation !== this.runGeneration) return;
+      this.sessionToken = token;
+      this.leaderboard?.setRunToken(token);
+    }).catch(() => {
+      if (generation !== this.runGeneration) return;
+      this.sessionToken = null;
+      this.leaderboard?.setRunToken(null, 'No se pudo validar esta partida. El puntaje no podrá publicarse.');
+    });
   }
 
   spawnWave() {
@@ -235,6 +260,7 @@ export class Game {
   announce(message) { this.ui.announcement.textContent = message; }
 
   handleAction(code) {
+    if (this.orientationBlocked) return;
     this.audio?.unlock();
     if (code === 'KeyQ') this.activatePowerUp('jalapeno');
     else if (code === 'KeyE') this.activatePowerUp('missile');
@@ -246,16 +272,27 @@ export class Game {
   }
 
   play() {
+    if (this.orientationBlocked) return;
     if (this.state === 'over') this.reset();
+    else if (this.state === 'ready') {
+      this.runGeneration += 1;
+      this.sessionToken = null;
+      this.leaderboard?.setRunToken(null);
+      this.beginGameSession(this.runGeneration);
+    }
     this.state = 'playing';
     this.syncUI();
     this.canvas.focus({ preventScroll: true });
   }
 
-  restart() { this.reset(); this.canvas.focus({ preventScroll: true }); }
+  restart() {
+    if (this.orientationBlocked) return;
+    this.reset();
+    this.canvas.focus({ preventScroll: true });
+  }
 
   applyUpgrade(kind) {
-    if (this.state !== GameState.UPGRADE_MENU || !this.pendingWave) return;
+    if (this.orientationBlocked || this.state !== GameState.UPGRADE_MENU || !this.pendingWave) return;
     if (kind === 'speed') this.player.upgradeSpeed();
     else if (kind === 'damage') this.player.projectileDamage += 1;
     else return;
@@ -273,6 +310,18 @@ export class Game {
     this.syncUI();
   }
 
+  updateOrientation() {
+    const landscapeMobile = window.matchMedia(
+      '(orientation: landscape) and (max-width: 900px), (orientation: landscape) and (pointer: coarse)',
+    ).matches;
+    this.orientationBlocked = landscapeMobile;
+    if (this.ui?.['orientation-overlay']) this.ui['orientation-overlay'].hidden = !landscapeMobile;
+    if (landscapeMobile) {
+      this.input?.clear();
+      if (this.state === GameState.PLAYING) this.pause();
+    }
+  }
+
   togglePause() {
     if (this.state === 'playing') this.pause();
     else if (this.state === 'paused') this.play();
@@ -283,31 +332,6 @@ export class Game {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.querySelector('.arcade').requestFullscreen();
     } catch { this.announce('La pantalla completa no está disponible en este navegador.'); }
-  }
-
-  async playFullscreen() {
-    if (this.fullscreenPending) return;
-    this.fullscreenPending = true;
-    this.ui['start-fullscreen'].disabled = true;
-    this.ui['fullscreen-message'].hidden = true;
-    try {
-      const container = document.querySelector('.arcade');
-      if (!container.requestFullscreen) throw new Error('Fullscreen no disponible');
-      // La petición se hace desde el clic, antes de iniciar la partida.
-      if (!document.fullscreenElement) await container.requestFullscreen({ navigationUI: 'hide' });
-      // Espera a que el navegador aplique el nuevo viewport antes de arrancar.
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      this.resize();
-      this.play();
-    } catch {
-      const message = 'No se pudo ampliar. Puedes jugar con el botón JUGAR.';
-      this.ui['fullscreen-message'].textContent = message;
-      this.ui['fullscreen-message'].hidden = false;
-      this.announce(message);
-    } finally {
-      this.fullscreenPending = false;
-      this.ui['start-fullscreen'].disabled = false;
-    }
   }
 
   activatePowerUp(kind) {
@@ -366,10 +390,11 @@ export class Game {
 
   updateLasers(dt) {
     if (!this.enemies.some((enemy) => enemy.isBoss)) return;
+    const interval = laserIntervalForWave(this.wave);
     this.laserElapsed += dt;
-    if (this.laserElapsed + 1e-9 >= LASER_INTERVAL - 1) this.enemies.forEach((enemy) => enemy.prepareLaser(this.player));
-    if (this.laserElapsed + 1e-9 >= LASER_INTERVAL) {
-      this.laserElapsed = Math.max(0, this.laserElapsed - LASER_INTERVAL);
+    if (this.laserElapsed + 1e-9 >= interval - 1) this.enemies.forEach((enemy) => enemy.prepareLaser(this.player));
+    if (this.laserElapsed + 1e-9 >= interval) {
+      this.laserElapsed = Math.max(0, this.laserElapsed - interval);
       this.enemies.forEach((enemy) => this.enemyProjectiles.push(...enemy.fireLasers()));
     }
   }
@@ -377,15 +402,16 @@ export class Game {
   updateSummons() {
     for (const boss of this.enemies) {
       if (!boss.consumeSummon()) continue;
-      for (let index = 0; index < 4; index += 1) {
+      const minionCount = MINIONS_PER_SUMMON;
+      for (let index = 0; index < minionCount; index += 1) {
         const minion = new Minion(0, boss.y + boss.height + 18, this.assets.moche, this.wave, this.layout);
-        const center = boss.x + boss.width / 2 + (index - 1.5) * (minion.width + 10);
+        const center = boss.x + boss.width / 2 + (index - (minionCount - 1) / 2) * (minion.width + 10);
         minion.x = Math.max(8, Math.min(this.canvas.width - minion.width - 8, center - minion.width / 2));
         // Nacen delante del jefe, con un margen para que el cuy pueda reaccionar.
         minion.y = Math.min(minion.y, this.player.hitbox.y - minion.height - 90);
         this.minions.push(minion);
       }
-      this.bossNotice = '¡EL IMPOSTOR INVOCA 4 SECUACES!';
+      this.bossNotice = '¡EL JEFE INVOCA ' + minionCount + ' SECUACES!';
       this.revealTime = 3;
       this.announce(this.bossNotice);
     }
@@ -554,7 +580,7 @@ export class Game {
       health: '♥'.repeat(this.player.health) + '·'.repeat(3 - this.player.health),
       formation: NAMES[FORMATIONS[this.formationIndex]],
       'formation-time': Math.ceil(FORMATION_INTERVAL - this.formationElapsed) + 's',
-      'laser-time': bosses ? (this.laserElapsed >= 9 ? '¡ESQUIVA!' : Math.ceil(LASER_INTERVAL - this.laserElapsed) + 's') : '—',
+      'laser-time': bosses ? (this.laserElapsed >= laserIntervalForWave(this.wave) - 1 ? '¡ESQUIVA!' : Math.ceil(laserIntervalForWave(this.wave) - this.laserElapsed) + 's') : '—',
       bosses: this.layout.bosses ? bosses + '/' + this.layout.bosses : 'DESDE N.3',
       'boss-phase': this.minions.length ? this.minions.length + ' SECUACES' : this.enemies.some((enemy) => enemy.isTrueForm) ? 'IMPOSTOR' : '',
       'jalapeno-count': this.player.jalapenoCount + '/3',
@@ -599,6 +625,8 @@ export class Game {
     this.ui.pause.textContent = this.state === 'paused' ? '▶' : 'Ⅱ';
     this.ui.pause.setAttribute('aria-label', this.state === 'paused' ? 'Reanudar partida' : 'Pausar partida');
     this.ui.overlay.hidden = this.state === 'playing';
+    if (this.ui['start-card']) this.ui['start-card'].hidden = this.state === GameState.GAME_OVER;
+    if (this.ui.play) this.ui.play.hidden = this.state === GameState.GAME_OVER;
     if (this.ui['pause-restart']) this.ui['pause-restart'].hidden = this.state !== 'paused' || !window.matchMedia('(max-width: 768px)').matches;
     const upgradeModal = this.ui['upgrade-modal'];
     if (upgradeModal) {
@@ -606,12 +634,11 @@ export class Game {
       upgradeModal.hidden = this.state !== GameState.UPGRADE_MENU;
       if (opening) this.ui['speed-upgrade']?.focus({ preventScroll: true });
     }
-    if (this.ui['start-fullscreen']) this.ui['start-fullscreen'].hidden = Boolean(document.fullscreenElement) || !['ready', 'over'].includes(this.state);
     if (this.ui['damage-upgrade']) this.ui['damage-upgrade'].hidden = this.state !== GameState.UPGRADE_MENU;
     const copy = {
       ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Espacio dispara. Q o Ctrl activa jalapeño; E o Shift lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder. Desde la oleada 8 caen burbujas.', 'JUGAR', 'FLECHAS / A D · ESPACIO · Q / CTRL · E / SHIFT'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
-      over: [this.defeatReason.toUpperCase(), '¡Buen intento!', this.score + ' puntos · Oleada ' + this.wave + '. Otro cuy, otra oportunidad.', 'VOLVER A JUGAR', 'O PRESIONA ENTER'],
+      over: [this.defeatReason.toUpperCase(), '¡Buen intento!', 'Guarda tu resultado y vuelve a defender los Andes cuando quieras.', 'JUGAR DE NUEVO', 'O PRESIONA ENTER'],
       [GameState.UPGRADE_MENU]: ['DESCANSO ENTRE OLEADAS', '¡Mejora tu equipo!', 'La oleada ' + this.pendingWave + ' tendrá más resistencia. Elige una mejora para continuar.', '+ VELOCIDAD (+20 %)', 'ELIGE UNA MEJORA PARA SEGUIR'],
     }[this.state];
     if (copy) {
@@ -622,6 +649,7 @@ export class Game {
       this.ui['overlay-hint'].textContent = copy[4];
       if (this.state === GameState.UPGRADE_MENU) this.ui['damage-upgrade'].hidden = false;
     }
+    this.leaderboard?.sync(this.state, this.score, this.wave, this.defeatReason);
   }
 
   drawBackground() {
@@ -717,5 +745,5 @@ export class Game {
       boss: this.enemies.some((enemy) => enemy.alive && enemy.isTrueForm) });
   }
 
-  destroy() { this.input.destroy(); this.audio?.destroy(); this.controller.abort(); }
+  destroy() { this.input.destroy(); this.audio?.destroy(); this.leaderboard?.destroy(); this.controller.abort(); }
 }

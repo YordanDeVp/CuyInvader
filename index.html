@@ -43,16 +43,51 @@
           Tu navegador necesita soporte para Canvas para ejecutar el juego.
         </canvas>
         <div class="overlay" id="overlay">
-          <div class="start-card">
+          <div class="start-card" id="start-card">
             <p class="eyebrow" id="overlay-kicker">UN CUY. UNA AMETRALLADORA.</p>
             <h2 id="overlay-title">Defiende<br>los Andes.</h2>
             <p id="overlay-message">Espacio dispara. Q o Ctrl activa jalapeño; E o Shift lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder.</p>
             <button class="primary" id="play" type="button">JUGAR <span>↗</span></button>
-            <button class="fullscreen-start" id="start-fullscreen" type="button">JUGAR EN PANTALLA COMPLETA ⤢</button>
             <button class="fullscreen-start" id="pause-restart" type="button" hidden>REINICIAR PARTIDA</button>
-            <p id="fullscreen-message" class="fullscreen-message" role="status" hidden></p>
             <small id="overlay-hint">O PRESIONA ENTER / ESPACIO</small>
           </div>
+          <section id="gameover-card" class="start-card" role="dialog" aria-modal="true" aria-labelledby="gameover-title" hidden>
+            <p class="eyebrow">FIN DE PARTIDA</p>
+            <h2 id="gameover-title">¡Buen intento!</h2>
+            <p id="gameover-reason" class="leaderboard-note"></p>
+            <section id="leaderboard-result" class="leaderboard-result" aria-label="Resultado final" aria-live="polite" hidden>
+              <div><span>PUNTAJE FINAL</span><strong id="final-score">0</strong></div>
+              <div><span>OLEADA</span><strong id="final-wave">01</strong></div>
+            </section>
+            <form id="leaderboard-form" hidden aria-label="Publicar puntaje global">
+              <div class="leaderboard-names">
+                <label for="playerName">Nombre
+                  <input type="text" id="playerName" name="playerName" required maxlength="30" autocomplete="name" aria-describedby="playerName-limit">
+                </label>
+              </div>
+              <p id="playerName-limit" class="name-limit" role="status" aria-live="polite" hidden></p>
+              <p id="leaderboard-submit-status" role="status" aria-live="polite"></p>
+              <div class="gameover-actions">
+                <button id="leaderboard-submit" class="fullscreen-start" type="submit">GUARDAR</button>
+                <button class="primary" id="gameover-restart" type="button">JUGAR DE NUEVO</button>
+              </div>
+            </form>
+          </section>
+          <section id="leaderboard-card" class="start-card leaderboard-card" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title" hidden>
+            <h2 id="leaderboard-title" tabindex="-1">TOP 10 GLOBAL</h2>
+            <section id="leaderboard-panel" class="leaderboard-panel">
+              <p id="leaderboard-status" role="status" aria-live="polite">Cargando ranking…</p>
+              <div class="leaderboard-scroll" tabindex="0" role="region" aria-label="Tabla de los mejores puntajes">
+                <table class="leaderboard-table">
+                  <caption class="sr-only">Los diez mejores jugadores de Cuy Invaders</caption>
+                  <thead><tr><th scope="col">#</th><th scope="col">Jugador</th><th scope="col">Puntos</th><th scope="col">Oleada</th></tr></thead>
+                  <tbody id="leaderboard-rows"></tbody>
+                </table>
+              </div>
+              <button type="button" id="leaderboard-refresh" class="fullscreen-start" hidden>REINTENTAR</button>
+            </section>
+            <button class="primary" id="leaderboard-restart" type="button">JUGAR DE NUEVO <span>↗</span></button>
+          </section>
           <!-- Panel independiente: el fondo atenuado cubre el canvas; las tarjetas no. -->
           <section id="upgrade-modal" role="dialog" aria-modal="true" aria-labelledby="upgrade-title" aria-describedby="upgrade-hint" hidden>
             <h2 id="upgrade-title">¡ELIGE UNA MEJORA!</h2>
@@ -95,6 +130,12 @@
     <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
     <noscript>Activa JavaScript para jugar Cuy Invaders.</noscript>
   </main>
+  <div id="orientation-overlay" role="alert" aria-live="assertive" aria-label="Gira el dispositivo a modo vertical" hidden>
+    <div class="orientation-card">
+      <span class="orientation-icon" aria-hidden="true">↻</span>
+      <p>Por favor, gira tu dispositivo a modo vertical para jugar</p>
+    </div>
+  </div>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

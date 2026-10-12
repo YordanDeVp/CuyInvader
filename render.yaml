@@ -1,0 +1,20 @@
+# Crear un NUEVO Web Service; el Static Site actual no ejecuta Node.js.
+services:
+  - type: web
+    name: cuyinvader-web
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: TRUST_PROXY_HOPS
+        value: 1
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: GAME_SESSION_SECRET
+        sync: false

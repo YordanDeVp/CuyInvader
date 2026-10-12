@@ -46,7 +46,7 @@ canvas { display: block; image-rendering: pixelated; }
 #game { width: 100%; height: auto; touch-action: none; }
 .overlay { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 16px; background: #0710159c; }
 [hidden] { display: none !important; }
-.start-card { width: min(100%, 360px); padding: 26px; background: #142126f5; border: 1px solid #75806e; box-shadow: 7px 7px 0 #07101580; }
+.start-card { width: min(100%, 360px); max-height: 100%; overflow-y: auto; padding: 26px; background: #142126f5; border: 1px solid #75806e; box-shadow: 7px 7px 0 #07101580; }
 .start-card .eyebrow { color: #f1ba62; font-size: 9px; letter-spacing: 1px; }
 h2 { white-space: pre-line; font-family: system-ui, sans-serif; font-size: clamp(30px, 5vw, 47px); letter-spacing: -2px; line-height: 1.02; margin: 18px 0; }
 .start-card p:not(.eyebrow) { color: #a8b8b7; font-size: 12px; line-height: 1.7; margin-bottom: 20px; }
@@ -75,7 +75,6 @@ h2 { white-space: pre-line; font-family: system-ui, sans-serif; font-size: clamp
 .upgrade-card:active { background: #30464c; box-shadow: inset 2px 2px 0 #0006; }
 #upgrade-hint { margin: 8px 0 0; font-size: 9px; line-height: 1.3; color: #a8b8b7; }
 .fullscreen-start { display: block; width: 100%; min-height: 48px; margin-top: 10px; padding: 10px; border: 1px solid #81dec3; background: #81dec315; color: #b4eddc; font-size: 10px; font-weight: bold; line-height: 1.5; }
-.start-card .fullscreen-message { color: #ffc76a; font-size: 10px; margin: 10px 0 0; }
 .start-card small { display: block; margin-top: 15px; text-align: center; color: #a8b8b7; font-size: 9px; }
 .screen-label { display: flex; justify-content: space-between; padding: 7px 12px 0; color: #78918f; font-size: 8px; letter-spacing: 1px; pointer-events: none; }
 .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px 3px; color: #a8b8b7; font-size: 9px; }
@@ -259,4 +258,55 @@ footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 8
   #pause-restart { min-height: 44px; margin-top: 8px; }
   #upgrade-modal { width: min(88%, 360px); max-height: 50%; padding: 8px; }
   #upgrade-title { font-size: clamp(12px, 3.4vw, 16px); }
+}
+
+/* Ranking: contenido desplazable dentro del menú, también en fullscreen móvil. */
+#leaderboard-form { margin-bottom: 0; padding-top: 8px; border-top: 1px solid #465252; }
+.gameover-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.gameover-actions button { min-width: 0; min-height: 48px; margin: 0; padding: 8px 5px; font-size: 10px; letter-spacing: 1px; overflow-wrap: anywhere; }
+.gameover-actions .primary { display: flex; align-items: center; justify-content: center; text-align: center; }
+.leaderboard-card .leaderboard-panel { margin-top: 0; }
+.leaderboard-card > .primary { margin-top: 12px; }
+.leaderboard-result { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.leaderboard-result > div { display: grid; gap: 4px; padding: 9px; border: 1px solid #6d674a; background: #f1ba6210; }
+.leaderboard-result span { color: #a8b8b7; font-size: 9px; letter-spacing: 1px; }
+.leaderboard-result strong { color: #f1ba62; font-size: clamp(17px, 4vw, 24px); overflow-wrap: anywhere; }
+.leaderboard-names { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.leaderboard-names label { min-width: 0; display: grid; gap: 5px; font-size: 11px; }
+.leaderboard-names input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #75806e; background: #0c151c; color: #fff4dc; font: 16px "Courier New", monospace; }
+.leaderboard-panel { margin-top: 16px; border-top: 1px solid #52685e; padding-top: 8px; }
+.start-card .leaderboard-note, .start-card #leaderboard-status, .start-card #leaderboard-submit-status { margin: 8px 0; font-size: 11px; line-height: 1.5; }
+#leaderboard-submit-status:empty, #leaderboard-status:empty { display: none; }
+.start-card p.name-limit { margin: 5px 0 0; color: #ff91a6; font-size: 11px; line-height: 1.4; }
+.leaderboard-scroll { max-height: 260px; overflow: auto; overscroll-behavior: contain; }
+.leaderboard-table { width: 100%; border-collapse: separate; border-spacing: 0 5px; table-layout: fixed; font-size: 11px; }
+.leaderboard-table th { font-size: 10px; color: #acc0bd; text-align: left; padding: 5px 3px; }
+.leaderboard-table th:first-child { width: 18%; }
+.leaderboard-table th:nth-child(2) { width: 34%; }
+.leaderboard-table th:nth-child(3) { width: 30%; }
+.leaderboard-table th:last-child { width: 18%; }
+.leaderboard-table td { padding: 9px 4px; overflow-wrap: anywhere; border-block: 1px solid var(--rank-color); background: var(--rank-bg); color: var(--rank-color); }
+.leaderboard-table td:first-child { border-left: 3px solid var(--rank-color); }
+.leaderboard-table td:last-child { border-right: 1px solid var(--rank-color); text-align: center; }
+.rank-1 { --rank-color: #ffe28a; --rank-bg: #433317; font-weight: bold; text-shadow: 0 0 8px #ffd34b55; }
+.rank-2 { --rank-color: #e0eaf3; --rank-bg: #2b3846; font-weight: bold; }
+.rank-3 { --rank-color: #ffc18b; --rank-bg: #422b22; font-weight: bold; }
+.rank-standard { --rank-color: #adc4c0; --rank-bg: #152c30; }
+.leaderboard-panel button, #leaderboard-submit { min-height: 44px; }
+.leaderboard-card .leaderboard-scroll { max-height: min(260px, 36vh); }
+.leaderboard-names input:focus-visible, .leaderboard-scroll:focus-visible { outline: 2px solid #81dec3; outline-offset: 2px; }
+
+#orientation-overlay {
+  position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  background: #0c151c; text-align: center;
+}
+.orientation-card { width: min(100%, 360px); padding: 24px; border: 1px solid #81dec3; background: #142126; box-shadow: 6px 6px 0 #0008; }
+.orientation-card p { margin: 12px 0 0; color: #eae5d5; font-size: clamp(16px, 5vw, 22px); line-height: 1.5; }
+.orientation-icon { display: block; color: #f1ba62; font-size: 56px; line-height: 1; }
+
+@media (orientation: landscape) and (max-width: 900px),
+       (orientation: landscape) and (pointer: coarse) {
+  #game, .touch-controls { display: none !important; }
+  #orientation-overlay:not([hidden]) { display: grid; }
 }
