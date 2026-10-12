@@ -1,6 +1,49 @@
 import { getTopScores, submitScore } from './api.js';
 
 const NAME_MAX_LENGTH = 30;
+const LOCAL_SCORES_KEY = 'cuy-invaders-local-leaderboard-v1';
+const LOCAL_SCORE_LIMIT = 100;
+let sessionScores = [];
+
+function readLocalScores() {
+  let persisted = [];
+  try {
+    const raw = globalThis.localStorage?.getItem(LOCAL_SCORES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) {
+      persisted = parsed.filter((entry) => entry && typeof entry.name === 'string' &&
+        Number.isSafeInteger(entry.score) && entry.score >= 0 &&
+        Number.isInteger(entry.wave) && entry.wave > 0 && typeof entry.id === 'string');
+    }
+  } catch {
+    // Algunos navegadores bloquean localStorage; la copia de esta sesión sigue disponible.
+  }
+  const unique = new Map();
+  for (const entry of [...persisted, ...sessionScores]) unique.set(entry.id, entry);
+  return [...unique.values()].sort((a, b) => b.score - a.score || b.wave - a.wave ||
+    String(a.created_at).localeCompare(String(b.created_at))).slice(0, LOCAL_SCORE_LIMIT);
+}
+
+function saveLocalScore({ name, score, wave }) {
+  if (typeof name !== 'string' || !name.trim() || name.length > NAME_MAX_LENGTH ||
+      !Number.isSafeInteger(score) || score < 0 || !Number.isInteger(wave) || wave < 1) {
+    throw new Error('El puntaje no tiene un formato válido para guardarlo.');
+  }
+  const entry = {
+    id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name: name.trim().normalize('NFC'), score, wave, created_at: new Date().toISOString(),
+  };
+  sessionScores.push(entry);
+  const scores = readLocalScores();
+  let persistent = false;
+  try {
+    globalThis.localStorage?.setItem(LOCAL_SCORES_KEY, JSON.stringify(scores));
+    persistent = Boolean(globalThis.localStorage);
+  } catch {
+    // El registro queda en memoria hasta que la página se cierre.
+  }
+  return { entry, scores: scores.slice(0, 10), persistent };
+}
 
 export function renderTopScores(tbody, scores) {
   const fragment = document.createDocumentFragment();
@@ -40,12 +83,14 @@ export class Leaderboard {
     this.button = document.getElementById('leaderboard-submit');
     this.refreshButton = document.getElementById('leaderboard-refresh');
     this.restartButton = document.getElementById('leaderboard-restart');
+    this.title = document.getElementById('leaderboard-title');
     this.controller = new AbortController();
     this.generation = 0;
     this.refreshGeneration = 0;
     this.loading = false;
     this.runToken = null;
     this.runSessionError = null;
+    this.savedLocally = false;
     const options = { signal: this.controller.signal };
     // maxlength bloquea el exceso; el aviso solo responde a un intento real.
     this.nameInput.addEventListener('keydown', (event) => {
@@ -120,6 +165,7 @@ export class Leaderboard {
     this.refreshButton.hidden = true;
     this.runToken = null;
     this.runSessionError = null;
+    this.savedLocally = false;
     this.result = null;
     this.state = null;
     this.sending = false;
@@ -139,6 +185,7 @@ export class Leaderboard {
     this.nameInput.disabled = false;
     this.message.textContent = '';
     this.panel.hidden = true;
+    this.title.textContent = 'TOP 10 GLOBAL';
   }
 
   sync(state, score, wave, reason = '') {
@@ -152,8 +199,8 @@ export class Leaderboard {
       this.finalScore.textContent = Number(score).toLocaleString('es-PE');
       this.finalWave.textContent = String(wave).padStart(2, '0');
       this.reason.textContent = reason;
-      this.button.disabled = !this.runToken;
-      this.message.textContent = this.runSessionError || (this.runToken ? '' : 'Validando la sesión de la partida…');
+      this.button.disabled = false;
+      this.message.textContent = this.runSessionError || (this.runToken ? '' : 'El guardado local estará disponible si falla el ranking global.');
       this.nameInput.focus({ preventScroll: true });
     }
     this.state = state;
@@ -164,8 +211,8 @@ export class Leaderboard {
     this.runSessionError = error;
     if (!this.result || this.state !== 'over') return;
     this.result.runToken = this.runToken;
-    this.button.disabled = !this.runToken || this.sending || this.sent;
-    this.message.textContent = error || (this.runToken ? '' : 'Validando la sesión de la partida…');
+    this.button.disabled = this.sending || this.sent;
+    this.message.textContent = error || (this.runToken ? '' : 'El guardado local estará disponible si falla el ranking global.');
   }
 
   async refresh() {
@@ -181,12 +228,20 @@ export class Leaderboard {
     try {
       const scores = await getTopScores({ signal: controller.signal });
       if (controller.signal.aborted || generation !== this.refreshGeneration) return;
+      this.title.textContent = 'TOP 10 GLOBAL';
       renderTopScores(this.body, scores);
       this.status.textContent = scores.length ? '' : 'Todavía no hay puntajes.';
     } catch (error) {
       if (controller.signal.aborted || generation !== this.refreshGeneration) return;
-      this.body.replaceChildren();
-      this.status.textContent = error.message;
+      const localScores = readLocalScores();
+      if (localScores.length) {
+        this.title.textContent = 'TOP 10 LOCAL';
+        renderTopScores(this.body, localScores);
+        this.status.textContent = 'No se pudo conectar al ranking global. Se muestran puntajes guardados en este dispositivo.';
+      } else {
+        this.body.replaceChildren();
+        this.status.textContent = error.message;
+      }
       this.refreshButton.hidden = false;
     } finally {
       if (generation === this.refreshGeneration) {
@@ -198,7 +253,7 @@ export class Leaderboard {
   }
 
   async submit() {
-    if (this.state !== 'over' || !this.result?.runToken || this.sending || this.sent || !this.form.reportValidity()) return;
+    if (this.state !== 'over' || !this.result || this.sending || this.sent || !this.form.reportValidity()) return;
     const name = this.nameInput.value.slice(0, NAME_MAX_LENGTH).trim().normalize('NFC');
     if (!name) {
       this.message.textContent = 'Ingresa un nombre.';
@@ -212,19 +267,40 @@ export class Leaderboard {
     this.button.textContent = 'GUARDANDO…';
     this.message.textContent = 'Guardando…';
     try {
-      await submitScore({ ...this.result,
-        name });
+      let remoteError = null;
+      if (this.result.runToken) {
+        try {
+          await submitScore({ ...this.result, name });
+        } catch (error) {
+          remoteError = error;
+        }
+      } else {
+        remoteError = new Error(this.runSessionError || 'No hay una sesión válida para el ranking global.');
+      }
       if (generation !== this.generation) return;
+
+      if (remoteError) {
+        // El ticket de servidor protege el ranking global. Si falla la sesión,
+        // conservamos el resultado en este navegador en vez de perderlo.
+        const local = saveLocalScore({ name, score: this.result.score, wave: this.result.wave });
+        this.savedLocally = true;
+        this.sent = true;
+        this.title.textContent = 'TOP 10 LOCAL';
+        renderTopScores(this.body, local.scores);
+        this.status.textContent = local.persistent
+          ? 'Guardado en este dispositivo. No se publicó en el ranking global.'
+          : 'Guardado temporalmente en esta sesión; el navegador bloqueó el almacenamiento local.';
+        this.refreshButton.hidden = false;
+        this.openRanking();
+        return;
+      }
+
       this.sent = true;
+      this.savedLocally = false;
       this.button.textContent = 'GUARDADO ✓';
       this.message.textContent = '¡Puntaje guardado!';
       this.status.textContent = 'Puntaje guardado. Cargando el Top 10…';
-      this.entryCard.hidden = true;
-      this.form.hidden = true;
-      this.resultPanel.hidden = true;
-      this.rankingCard.hidden = false;
-      this.panel.hidden = false;
-      document.getElementById('leaderboard-title').focus?.({ preventScroll: true });
+      this.openRanking();
       await this.refresh();
     } catch (error) {
       if (generation === this.generation) this.message.textContent = error.message;
@@ -232,10 +308,19 @@ export class Leaderboard {
       if (generation === this.generation) {
         this.sending = false;
         this.nameInput.disabled = this.sent;
-        this.button.disabled = this.sent || !this.runToken;
+        this.button.disabled = this.sent;
         this.button.textContent = this.sent ? 'GUARDADO ✓' : 'GUARDAR';
       }
     }
+  }
+
+  openRanking() {
+    this.entryCard.hidden = true;
+    this.form.hidden = true;
+    this.resultPanel.hidden = true;
+    this.rankingCard.hidden = false;
+    this.panel.hidden = false;
+    this.title.focus?.({ preventScroll: true });
   }
 
   destroy() { this.generation += 1; this.controller.abort(); }

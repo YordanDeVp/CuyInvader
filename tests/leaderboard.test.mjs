@@ -396,7 +396,7 @@ test('el formulario y Top 10 solo aparecen al perder; guardar abre el ranking y 
   board.reset();
 });
 
-test('un guardado fallido restaura el formulario y solo 200/201 abre el ranking', async (t) => {
+test('si falla el envío global, conserva el puntaje en el ranking local y libera el formulario', async (t) => {
   class Element {
     constructor() { this.children = []; this.listeners = {}; this.textContent = ''; this.value = ''; this.disabled = false; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
@@ -415,18 +415,23 @@ test('un guardado fallido restaura el formulario y solo 200/201 abre el ranking'
     createElement: () => new Element(), createDocumentFragment: () => new Element(),
   } });
   let postAttempts = 0;
+  const storageData = new Map();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key) => storageData.get(key) ?? null,
+    setItem: (key, value) => storageData.set(key, value),
+  } });
   globalThis.fetch = async (_url, options = {}) => {
     if (options.method === 'POST') {
       postAttempts += 1;
-      const payload = JSON.parse(options.body);
-      if (postAttempts === 1) return { ok: false, status: 202, json: async () => ({ error: 'Confirmación inválida.' }) };
-      return { ok: true, status: 201, json: async () => ({ id: 'saved', ...payload }) };
+      return { ok: false, status: 422, json: async () => ({ error: 'La duración no es suficiente.' }) };
     }
     return { ok: true, status: 200, json: async () => [] };
   };
   t.after(() => {
     if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document;
     if (previousFetch) Object.defineProperty(globalThis, 'fetch', previousFetch); else delete globalThis.fetch;
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage); else delete globalThis.localStorage;
   });
 
   const board = new Leaderboard();
@@ -434,21 +439,53 @@ test('un guardado fallido restaura el formulario y solo 200/201 abre el ranking'
   board.sync('over', 150, 2);
   board.nameInput.value = 'Yordan';
   await board.submit();
-  assert.equal(board.sent, false);
-  assert.equal(board.entryCard.hidden, false);
-  assert.equal(board.rankingCard.hidden, true);
-  assert.equal(board.nameInput.disabled, false);
-  assert.equal(board.button.disabled, false);
-  assert.equal(board.button.textContent, 'GUARDAR');
-  assert.match(board.message.textContent, /Confirmación inválida/);
-
-  await board.submit();
-  assert.equal(postAttempts, 2);
+  assert.equal(postAttempts, 1);
   assert.equal(board.sent, true);
+  assert.equal(board.savedLocally, true);
   assert.equal(board.entryCard.hidden, true);
   assert.equal(board.rankingCard.hidden, false);
   assert.equal(board.nameInput.disabled, true);
   assert.equal(board.button.textContent, 'GUARDADO ✓');
+  assert.equal(board.title.textContent, 'TOP 10 LOCAL');
+  assert.match(board.status.textContent, /Guardado en este dispositivo/);
+  const localScores = JSON.parse(storageData.get('cuy-invaders-local-leaderboard-v1'));
+  assert.ok(localScores.some((entry) => entry.name === 'Yordan' && entry.score === 150 && entry.wave === 2));
+  board.reset();
+});
+
+test('permite guardar localmente aunque el backend no entregue un ticket de sesión', async (t) => {
+  class Element {
+    constructor() { this.children = []; this.listeners = {}; this.textContent = ''; this.value = ''; this.disabled = false; }
+    addEventListener(name, callback) { this.listeners[name] = callback; }
+    replaceChildren(...children) { this.children = children.length === 1 && children[0].children ? children[0].children : children; }
+    append(child) { this.children.push(child); }
+    reset() { this.value = ''; }
+    reportValidity() { return true; }
+    focus() {}
+  }
+  const elements = new Map();
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const previousFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+    getElementById: (id) => elements.get(id) ?? (elements.set(id, new Element()), elements.get(id)),
+    createElement: () => new Element(), createDocumentFragment: () => new Element(),
+  } });
+  globalThis.fetch = async () => { assert.fail('No debe intentar publicar sin ticket de sesión.'); };
+  t.after(() => {
+    if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document;
+    if (previousFetch) Object.defineProperty(globalThis, 'fetch', previousFetch); else delete globalThis.fetch;
+  });
+
+  const board = new Leaderboard();
+  board.setRunToken(null, 'No se pudo validar la partida para el ranking global.');
+  board.sync('over', 2170, 3);
+  board.nameInput.value = 'Yordan';
+  assert.equal(board.button.disabled, false);
+  await board.submit();
+  assert.equal(board.sent, true);
+  assert.equal(board.savedLocally, true);
+  assert.equal(board.rankingCard.hidden, false);
+  assert.match(board.status.textContent, /Guardado/);
   board.reset();
 });
 

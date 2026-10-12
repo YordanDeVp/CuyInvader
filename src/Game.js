@@ -233,7 +233,9 @@ export class Game {
         console.error('[Cuy Invaders] No se pudo crear la sesión de partida:', error);
       }
       this.sessionToken = null;
-      this.leaderboard?.setRunToken(null, 'No se pudo validar esta partida. El puntaje no podrá publicarse.');
+      // La validación solo protege el ranking global. El formulario sigue
+      // habilitado y guarda en el navegador si el servicio de sesión falla.
+      this.leaderboard?.setRunToken(null, 'No se pudo validar la partida para el ranking global. Guardar conservará el puntaje en este dispositivo.');
     });
   }
 
