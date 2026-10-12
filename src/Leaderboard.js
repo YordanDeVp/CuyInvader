@@ -89,7 +89,6 @@ export class Leaderboard {
     this.refreshGeneration = 0;
     this.loading = false;
     this.runToken = null;
-    this.runSessionError = null;
     this.savedLocally = false;
     const options = { signal: this.controller.signal };
     // maxlength bloquea el exceso; el aviso solo responde a un intento real.
@@ -164,7 +163,6 @@ export class Leaderboard {
     this.refreshButton.disabled = false;
     this.refreshButton.hidden = true;
     this.runToken = null;
-    this.runSessionError = null;
     this.savedLocally = false;
     this.result = null;
     this.state = null;
@@ -200,19 +198,17 @@ export class Leaderboard {
       this.finalWave.textContent = String(wave).padStart(2, '0');
       this.reason.textContent = reason;
       this.button.disabled = false;
-      this.message.textContent = this.runSessionError || (this.runToken ? '' : 'El guardado local estará disponible si falla el ranking global.');
+      this.message.textContent = '';
       this.nameInput.focus({ preventScroll: true });
     }
     this.state = state;
   }
 
-  setRunToken(token, error = null) {
+  setRunToken(token) {
     this.runToken = typeof token === 'string' ? token : null;
-    this.runSessionError = error;
     if (!this.result || this.state !== 'over') return;
     this.result.runToken = this.runToken;
     this.button.disabled = this.sending || this.sent;
-    this.message.textContent = error || (this.runToken ? '' : 'El guardado local estará disponible si falla el ranking global.');
   }
 
   async refresh() {
@@ -275,7 +271,7 @@ export class Leaderboard {
           remoteError = error;
         }
       } else {
-        remoteError = new Error(this.runSessionError || 'No hay una sesión válida para el ranking global.');
+        remoteError = new Error('No hay una sesión válida para el ranking global.');
       }
       if (generation !== this.generation) return;
 

@@ -477,10 +477,11 @@ test('permite guardar localmente aunque el backend no entregue un ticket de sesi
   });
 
   const board = new Leaderboard();
-  board.setRunToken(null, 'No se pudo validar la partida para el ranking global.');
+  board.setRunToken(null);
   board.sync('over', 2170, 3);
   board.nameInput.value = 'Yordan';
   assert.equal(board.button.disabled, false);
+  assert.equal(board.message.textContent, '');
   await board.submit();
   assert.equal(board.sent, true);
   assert.equal(board.savedLocally, true);

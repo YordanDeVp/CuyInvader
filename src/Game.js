@@ -235,7 +235,7 @@ export class Game {
       this.sessionToken = null;
       // La validación solo protege el ranking global. El formulario sigue
       // habilitado y guarda en el navegador si el servicio de sesión falla.
-      this.leaderboard?.setRunToken(null, 'No se pudo validar la partida para el ranking global. Guardar conservará el puntaje en este dispositivo.');
+      this.leaderboard?.setRunToken(null);
     });
   }
 
