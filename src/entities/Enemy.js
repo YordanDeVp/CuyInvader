@@ -4,6 +4,7 @@ import { ENDGAME_WAVE, SUMMON_INTERVAL, MINION_POINTS, guardianCountForWave,
   LASER_BURST_DELAY, EXTREME_WAVE } from '../GameRules.js';
 
 const DESCENT_INTERVAL = 3;
+const MAX_IMPOSTOR_SUMMON_DELAY = 7;
 
 export class Enemy {
   constructor(slot, type, sprite, index, wave, layout, impostor = false) {
@@ -13,6 +14,8 @@ export class Enemy {
     this.isTrueForm = false;
     this.wave = wave;
     this.summonElapsed = 0;
+    this.impostorSummonDelay = null;
+    this.impostorSummonIndex = 0;
     this.sprite = sprite;
     this.index = index;
     this.alive = true;
@@ -163,6 +166,24 @@ export class Enemy {
     if (!this.alive || !this.isBoss || this.wave < ENDGAME_WAVE || this.summonElapsed + 1e-9 < SUMMON_INTERVAL) return false;
     this.summonElapsed = Math.max(0, this.summonElapsed - SUMMON_INTERVAL);
     return true;
+  }
+
+  consumeImpostorSummon(count, random) {
+    if (!this.alive || !this.isBoss || !this.isImpostor || this.wave < ENDGAME_WAVE) return null;
+    // Distribuye la cadencia anterior (2 o 4 por 3 s) en intervalos individuales.
+    // El primer secuaz aparece después del aviso temporal original de 3 s.
+    const nextDelay = () => Math.min(MAX_IMPOSTOR_SUMMON_DELAY,
+      SUMMON_INTERVAL / count * (0.6 + random() * 0.8));
+    if (this.impostorSummonDelay === null) {
+      this.impostorSummonDelay = Math.min(MAX_IMPOSTOR_SUMMON_DELAY, SUMMON_INTERVAL + nextDelay());
+    }
+    if (this.summonElapsed + 1e-9 < this.impostorSummonDelay) return null;
+    const index = this.impostorSummonIndex;
+    this.impostorSummonIndex = (index + 1) % count;
+    // No recupera retrasos con múltiples spawns: cada aparición empieza un reloj nuevo.
+    this.summonElapsed = 0;
+    this.impostorSummonDelay = nextDelay();
+    return index;
   }
 
   takeHit(damage = 1) {

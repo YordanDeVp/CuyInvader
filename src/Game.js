@@ -467,9 +467,18 @@ export class Game {
 
   updateSummons() {
     for (const boss of this.enemies) {
-      if (!boss.consumeSummon()) continue;
       const minionCount = minionsPerSummonForWave(this.wave);
-      for (let index = 0; index < minionCount; index += 1) {
+      let spawnIndices;
+      if (boss.isImpostor) {
+        // Un reloj aleatorio propio por impostor; usa la semilla del replay.
+        const index = boss.consumeImpostorSummon(minionCount, this.random ?? Math.random);
+        if (index === null) continue;
+        spawnIndices = [index];
+      } else {
+        if (!boss.consumeSummon()) continue;
+        spawnIndices = Array.from({ length: minionCount }, (_, index) => index);
+      }
+      for (const index of spawnIndices) {
         const minion = new Minion(0, boss.y + boss.height + 18, this.assets.moche, this.wave, this.layout);
         const center = boss.x + boss.width / 2 + (index - (minionCount - 1) / 2) * (minion.width + 10);
         minion.x = Math.max(8, Math.min(this.canvas.width - minion.width - 8, center - minion.width / 2));
@@ -477,7 +486,8 @@ export class Game {
         minion.y = Math.min(minion.y, this.player.hitbox.y - minion.height - 90);
         this.minions.push(minion);
       }
-      this.bossNotice = '¡EL JEFE INVOCA ' + minionCount + ' SECUACES!';
+      this.bossNotice = spawnIndices.length === 1 ? '¡EL IMPOSTOR INVOCA UN SECUAZ!' :
+        '¡EL JEFE INVOCA ' + minionCount + ' SECUACES!';
       this.revealTime = 3;
       this.announce(this.bossNotice);
     }
