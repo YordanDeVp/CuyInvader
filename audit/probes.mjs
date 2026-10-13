@@ -1,6 +1,8 @@
+// Comparación con el umbral histórico; ya no forma parte del servidor.
+const minimumRunDurationMs = wave => 15000 + (wave - 1) * 15000;
 // Diagnóstico local: no usa credenciales ni escribe en Supabase o Render.
 import { once } from 'node:events';
-import { createApp, minimumRunDurationMs } from '../server.js';
+import { createApp } from '../server.js';
 import { Game } from '../src/Game.js';
 import { Enemy } from '../src/entities/Enemy.js';
 import { Leaderboard } from '../src/Leaderboard.js';

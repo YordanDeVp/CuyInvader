@@ -12,6 +12,7 @@ function session(wave = 4, width = 1200, height = 800) {
   game.assets = {};
   game.ui = { announcement: { textContent: '' } };
   game.input = { clear() {}, isDown: () => false, direction: 0 };
+  game.beginGameSession = () => {};
   game.syncHUD = () => {};
   game.syncUI = () => {};
   game.reset();
@@ -268,10 +269,10 @@ test('burbujas solo desde oleada 8, reloj persistente y pausas sin consumir tiem
   assert.equal(game.dropInterval, null);
 });
 
-test('probabilidad 50/50 e intervalos aleatorios dentro de 10–15 segundos', (t) => {
+test('probabilidad 50/50 e intervalos aleatorios dentro de 10–15 segundos', () => {
   const game = session(8);
   for (const [value, kind] of [[0, 'jalapeno'], [0.499, 'jalapeno'], [0.5, 'missile'], [0.999, 'missile']]) {
-    t.mock.method(Math, 'random', () => value);
+    game.random = () => value;
     game.dropInterval = 10;
     game.dropElapsed = 0;
     game.updateEndgameDrops(10);
@@ -401,10 +402,10 @@ test('el impacto de un misil elimina el bloque 3×3 una sola vez y deja fuera al
   game.enemies = [];
   for (let row = -1; row <= 1; row += 1) {
     for (let col = -1; col <= 1; col += 1) {
-      game.enemies.push(new Enemy({ x: col * 80, y: 200 + row * 80 }, 'chavin', null, 0, 8, layout));
+      game.enemies.push(new Enemy({ x: col * 80, y: 200 + row * 80, row, column: col }, 'chavin', null, 0, 8, layout));
     }
   }
-  const outside = new Enemy({ x: 160, y: 200 }, 'moche', null, 0, 8, layout);
+  const outside = new Enemy({ x: 160, y: 200, row: 0, column: 2 }, 'moche', null, 0, 8, layout);
   game.enemies.push(outside);
   game.enemies.forEach((enemy) => enemy.update(0, game.formation));
   const center = game.enemies[4];

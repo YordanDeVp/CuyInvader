@@ -2,44 +2,49 @@
 const SCORES_PATH = '/api/scores';
 const SESSION_PATH = '/api/start-session';
 
-async function request(options = {}) {
-  const { url = SCORES_PATH, expectedStatuses, ...fetchOptions } = options;
+export async function request(options = {}) {
+  const { url = SCORES_PATH, expectedStatuses, timeoutMs = 12000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const caller = fetchOptions.signal;
+  const cancel = () => controller.abort(caller.reason);
+  if (caller?.aborted) cancel(); else caller?.addEventListener('abort', cancel, { once: true });
+  const timer = setTimeout(() => controller.abort(new DOMException('Tiempo de espera agotado.', 'TimeoutError')), timeoutMs);
+  const aborted = new Promise((_, reject) => {
+    if (controller.signal.aborted) reject(controller.signal.reason);
+    else controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+  });
   let response;
   try {
-    const timeout = AbortSignal.timeout(12000);
-    const signal = fetchOptions.signal && AbortSignal.any
-      ? AbortSignal.any([fetchOptions.signal, timeout])
-      : fetchOptions.signal ?? timeout;
-    response = await fetch(url, { ...fetchOptions,
+    // El plazo cubre también el JSON, sin depender de AbortSignal.any/timeout.
+    response = await Promise.race([aborted, fetch(url, { ...fetchOptions,
       headers: { Accept: 'application/json', ...fetchOptions.headers },
-      signal, cache: 'no-store', credentials: 'same-origin' });
+      signal: controller.signal, cache: 'no-store', credentials: 'same-origin' })]);
+    const contentType = response.headers?.get('content-type');
+    if (contentType && !contentType.toLowerCase().includes('application/json')) {
+      throw Object.assign(new Error('La API respondió una página en lugar de JSON. Comprueba que Express atiende /api en el Web Service.'), { status: response.status });
+    }
+    const data = await Promise.race([aborted, response.json()]);
+    const accepted = expectedStatuses ? expectedStatuses.includes(response.status) : response.ok;
+    if (!accepted) {
+      const retry = response.headers?.get('retry-after');
+      const retryAfterMs = retry ? (Number.isFinite(Number(retry)) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 0;
+      throw Object.assign(new Error(data?.error || 'El ranking no está disponible.'), {
+        status: response.status, retryAfterMs: Math.max(0, Math.min(60000, retryAfterMs || 0)),
+      });
+    }
+    if (data === null) throw new Error('Respuesta inválida del ranking.');
+    return data;
   } catch (cause) {
-    const error = new Error(options.method === 'POST'
-      ? 'No se pudo confirmar el envío. Consulta el ranking antes de reintentar.'
-      : 'No hay conexión con el ranking. Inténtalo de nuevo.');
-    // Conserva el error de red/CORS real para que el log temporal del flujo de
-    // sesión permita distinguirlo de un 404 o de una respuesta HTTP inválida.
-    error.cause = cause;
+    const error = cause?.status ? cause : Object.assign(new Error(fetchOptions.method === 'POST'
+      ? 'No se pudo confirmar el envío. Puedes reintentar el mismo resultado.'
+      : 'No hay conexión con el ranking. Inténtalo de nuevo.'), { cause });
     error.endpoint = url;
     error.method = fetchOptions.method ?? 'GET';
     throw error;
+  } finally {
+    clearTimeout(timer);
+    caller?.removeEventListener('abort', cancel);
   }
-  const contentType = response.headers?.get('content-type');
-  if (contentType && !contentType.toLowerCase().includes('application/json')) {
-    const error = new Error('La API respondió una página en lugar de JSON. Comprueba que Express atiende /api en el Web Service.');
-    error.status = response.status;
-    error.endpoint = url;
-    throw error;
-  }
-  const data = await response.json().catch(() => null);
-  const accepted = expectedStatuses ? expectedStatuses.includes(response.status) : response.ok;
-  if (!accepted) {
-    const error = new Error(data?.error || 'El ranking no está disponible.');
-    error.status = response.status;
-    throw error;
-  }
-  if (data === null) throw new Error('Respuesta inválida del ranking.');
-  return data;
 }
 
 export async function startGameSession({ signal } = {}) {
@@ -56,9 +61,9 @@ export async function getTopScores({ signal } = {}) {
   return scores.slice(0, 10);
 }
 
-export async function submitScore({ name, score, wave, runToken }) {
-  const saved = await request({ method: 'POST', expectedStatuses: [200, 201], headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, score, wave, runToken }) });
+export async function submitScore({ name, score, wave, runToken, replay }, { signal } = {}) {
+  const saved = await request({ method: 'POST', expectedStatuses: [200, 201], signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, score, wave, runToken, replay }) });
   if (saved.name !== name || saved.score !== score || saved.wave !== wave) {
     throw new Error('La confirmación del servidor no coincide con esta partida. Puedes reintentar el mismo envío.');
   }

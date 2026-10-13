@@ -3,10 +3,11 @@ services:
   - type: web
     name: cuyinvader-web
     runtime: node
+    branch: codex/server-session-monolith
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_VERSION
         value: 22

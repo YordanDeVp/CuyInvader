@@ -1,7 +1,8 @@
 import { Game } from './Game.js';
+import { SIMULATION_STEP } from './RunReplay.js';
 
 const game = new Game(document.getElementById('game'));
-const STEP = 1 / 120;
+const STEP = SIMULATION_STEP;
 let lastTime = null;
 let accumulator = 0;
 let frameId;
