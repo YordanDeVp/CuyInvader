@@ -62,7 +62,8 @@ export async function getTopScores({ signal } = {}) {
 }
 
 export async function submitScore({ name, score, wave, runToken, replay }, { signal } = {}) {
-  const saved = await request({ method: 'POST', expectedStatuses: [200, 201], signal, headers: { 'Content-Type': 'application/json' },
+  // Cubre consulta inicial, reproducción de hasta 30 s y confirmación en Supabase.
+  const saved = await request({ method: 'POST', timeoutMs: 60000, expectedStatuses: [200, 201], signal, headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, score, wave, runToken, replay }) });
   if (saved.name !== name || saved.score !== score || saved.wave !== wave) {
     throw new Error('La confirmación del servidor no coincide con esta partida. Puedes reintentar el mismo envío.');

@@ -10,6 +10,9 @@ export function createSimulation(token, width = 1200, height = 800) {
   game.input = { direction: 0, fire: false, clear() { this.direction = 0; this.fire = false; },
     isDown(code) { return code === 'Space' && this.fire; } };
   game.syncUI = game.syncHUD = game.beginGameSession = () => {};
+  // Partículas y audio son decorativos y no usan el RNG de la partida.
+  // Suprimirlos evita miles de operaciones innecesarias al verificar en Node.
+  game.burst = game.syncAudio = () => {};
   game.reset('playing', token);
   return game;
 }

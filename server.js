@@ -126,6 +126,7 @@ export function createApp(db, { trustProxy = 0, gameSessionSecret, now = Date.no
     const entry = validateEntry(req.body);
     if (!entry) return res.status(400).json({ error: 'Revisa nombre, puntaje y oleada.' });
     const ticket = res.locals.ticket;
+    let operation = 'leaderboard-confirm';
     const elapsedMs = now() - ticket.issuedAt;
     if (!validateReplay(req.body.replay) || req.body.replay.steps * SIMULATION_STEP * 1000 > elapsedMs + 1000) {
       return res.status(422).json({ error: 'El registro de acciones o su duración no es válido.' });
@@ -138,9 +139,11 @@ export function createApp(db, { trustProxy = 0, gameSessionSecret, now = Date.no
         if (existing.data.name === entry.name && existing.data.score === entry.score && existing.data.wave === entry.wave) return res.json(existing.data);
         return res.status(409).json({ error: 'El ticket ya se usó con otro resultado.' });
       }
+      operation = 'leaderboard-verify';
       const verified = await runVerifier(req.body.runToken, req.body.replay, entry);
       if (verified.score !== entry.score || verified.wave !== entry.wave) return res.status(422).json({ error: 'El resultado no coincide con la reproducción de la partida.' });
       // run_id único en la BD evita reutilizar un ticket para publicar varias veces.
+      operation = 'leaderboard-write';
       const { data, error } = await db.from('leaderboard').insert({ ...entry, run_id: ticket.runId })
         .select(columns).single().abortSignal(AbortSignal.timeout(8000));
       if (error?.code === '23505') {
@@ -158,7 +161,7 @@ export function createApp(db, { trustProxy = 0, gameSessionSecret, now = Date.no
       return res.status(201).json(data);
     } catch (error) {
       if (error.status === 422) return res.status(422).json({ error: 'No se pudo reproducir esta partida.' });
-      logFailure(req, 'leaderboard-write', error);
+      logFailure(req, operation, error);
       return res.set('Retry-After', '10').status(503).json({ error: 'No se pudo confirmar el guardado. Reintenta el mismo envío.' });
     }
   });
