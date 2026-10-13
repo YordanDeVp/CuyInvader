@@ -4,6 +4,8 @@ Un arcade de supervivencia inspirado en *Space Invaders*, con sabor andino. Mane
 
 ## Jugar
 
+`server.js` y `render.yaml` se conservan localmente y están excluidos de Git. Un clon nuevo necesita una copia privada de `server.js` para arrancar el backend y ejecutar `npm test`; `npm run test:public` comprueba el cliente sin ese archivo. En Render, el servidor se suministra como Secret File llamado `server.js`, disponible en la raíz del servicio. `npm start` conserva esa ruta para resolver los imports del proyecto. Estos archivos siguen presentes en commits anteriores.
+
 El juego y la API del ranking se sirven desde el mismo proceso de Node.js (22 o superior):
 
 ```bash
@@ -39,7 +41,7 @@ El despliegue monolítico usa un único **Web Service** en Render: runtime Node 
 | `GAME_SESSION_SECRET` | Secreto aleatorio único de al menos 32 bytes. Genera con `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` |
 | `TRUST_PROXY_HOPS` | `1` en Render para que el límite use la IP real detrás del proxy |
 
-En Render conecta el **Web Service** al repositorio y rama correctos, o usa Blueprint con `render.yaml`. Pon `npm ci && npm run build` como **Build Command** y `npm start` como **Start Command**. Render inyecta `PORT`; no fijes uno manual. El servidor escucha en `0.0.0.0`. Las rutas `/`, `/src/`, `/assets/` y `/api/*` salen del mismo origen, así que no se necesita CORS ni un proxy de navegador adicional. Comprueba `/api/ready` y `/api/start-session`: deben responder HTTP 200 con JSON. Un Static Site no ejecuta Node.js; devolver HTML o 404 en esos endpoints indica que se está usando el servicio equivocado o que existe un rewrite externo.
+En Render conecta el **Web Service** al repositorio y rama correctos y configura el Secret File `server.js` antes de desplegar. `render.yaml` es una referencia local; no está disponible como Blueprint en GitHub. Pon `npm ci && npm run build` como **Build Command** y `npm start` como **Start Command**. Render inyecta `PORT`; no fijes uno manual. El servidor escucha en `0.0.0.0`. Las rutas `/`, `/src/`, `/assets/` y `/api/*` salen del mismo origen, así que no se necesita CORS ni un proxy de navegador adicional. Comprueba `/api/ready` y `/api/start-session`: deben responder HTTP 200 con JSON. Un Static Site no ejecuta Node.js; devolver HTML o 404 en esos endpoints indica que se está usando el servicio equivocado o que existe un rewrite externo.
 
 En Render configura `SUPABASE_URL` (URL HTTPS del proyecto), `SUPABASE_SERVICE_KEY` (clave secreta de servidor, nunca `anon`/publishable), `GAME_SESSION_SECRET` (32 bytes aleatorios o más) y `TRUST_PROXY_HOPS=1`. `NODE_VERSION=22` ya está en `render.yaml`; Render proporciona `PORT` automáticamente. Para desarrollo local, define esas variables en `.env`, pon `TRUST_PROXY_HOPS=0` y no subas `.env` a Git.
 
@@ -120,7 +122,7 @@ Cliente: JavaScript puro, módulos ES6 y HTML5 Canvas, sin compilación. Servido
 
 ## Pruebas de jugabilidad
 
-Ejecuta `npm test`. Las pruebas simulan la física real en móvil y PC, el audio y la API de ranking con un cliente Supabase simulado (no necesitan claves ni escriben en producción). Incluyen firma, vencimiento, reproducción real de partidas de móvil y PC, puntajes manipulados, cambios de tamaño, confirmación tras una respuesta perdida, orden/límite del Top 10, errores, rate limiting por ticket y bloqueo de rutas privadas. La CI de GitHub ejecuta el build y estas pruebas sin credenciales.
+Ejecuta `npm test` con la copia privada de `server.js`. Las pruebas simulan la física real en móvil y PC, el audio y la API de ranking con un cliente Supabase simulado (no necesitan claves ni escriben en producción). Incluyen firma, vencimiento, reproducción real de partidas de móvil y PC, puntajes manipulados, cambios de tamaño, confirmación tras una respuesta perdida, orden/límite del Top 10, errores, rate limiting por ticket y bloqueo de rutas privadas. La CI de GitHub ejecuta `npm run test:public`: build, audio, jugabilidad y reintentos del cliente; no verifica la API privada.
 
 ## Audio y tarjetas de mejoras
 

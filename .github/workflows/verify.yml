@@ -1,4 +1,4 @@
-name: Verificar juego y API
+name: Verificar cliente público
 on:
   push:
   pull_request:
@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   test:
+    name: Cliente (backend privado fuera de Git)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -15,4 +16,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      # La suite completa de API requiere la copia privada de server.js.
+      - run: npm run test:public

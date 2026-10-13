@@ -1,5 +1,7 @@
 # Despliegue de la corrección
 
+`server.js` y `render.yaml` están excluidos del repositorio público y se conservan como archivos locales. En el Web Service Free, añade `server.js` en **Environment → Secret Files**, con el contenido de la copia privada. Render lo proporciona en la raíz del servicio; `npm start` utiliza `--preserve-symlinks-main` para mantener los imports relativos y la ruta de `dist/`. Mantén Auto-Deploy desactivado: las actualizaciones del backend también requieren actualizar este Secret File y verificar cliente y servidor juntos. No despliegues este repositorio sin el archivo privado. La CI pública solo verifica el cliente; la suite completa requiere `server.js` local. La retirada no borra los archivos del historial de Git.
+
 La corrección desarrollada en `codex/server-session-monolith` se integra en `main` para publicar el monolito. Un Static Site de Render no ejecuta sus rutas `/api/*`. En la auditoría del 12 de octubre, `cuyinvader.onrender.com` respondía 404 en esas rutas y servía `server.js` como archivo; esa publicación no demuestra que funcione este backend.
 
 ## Configuración del Web Service

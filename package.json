@@ -8,9 +8,11 @@
   },
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "start": "node server.js",
+    "start": "node --preserve-symlinks-main server.js",
     "pretest": "npm run build",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "pretest:public": "npm run build",
+    "test:public": "node --test tests/audio.test.mjs tests/gameplay.test.mjs tests/save-retry.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
