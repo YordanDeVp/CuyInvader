@@ -6,3 +6,6 @@ coverage/
 dist/
 supabase/
 audit/
+server.js
+render.yaml
+
