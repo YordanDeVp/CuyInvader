@@ -1,5 +1,5 @@
 // Contrato compartido. Incrementar la versión cuando cambie la física o el balance.
-export const RULES_VERSION = '2026-10-12-replay-1';
+export const RULES_VERSION = '2026-10-13-waves-5-10';
 export const SIMULATION_STEP = 1 / 120;
 export const MAX_RUN_STEPS = 120 * 60 * 60;
 export const MAX_RUN_EVENTS = 20000;

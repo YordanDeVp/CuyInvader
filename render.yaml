@@ -1,0 +1,21 @@
+# Monolito: Express sirve el cliente de dist/ y todas las rutas /api/.
+services:
+  - type: web
+    name: cuyinvader-web
+    runtime: node
+    branch: main
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/ready
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: TRUST_PROXY_HOPS
+        value: 1
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: GAME_SESSION_SECRET
+        sync: false

@@ -3,7 +3,7 @@ import { AudioManager } from './AudioManager.js';
 import { Leaderboard } from './Leaderboard.js';
 import { startGameSession } from './api.js';
 import { RunRecorder, seededRandom, sessionParameters } from './RunReplay.js';
-import { laserIntervalForWave, MINIONS_PER_SUMMON } from './GameRules.js';
+import { laserIntervalForWave, minionsPerSummonForWave } from './GameRules.js';
 import { Player } from './entities/Player.js';
 import { Enemy, Minion } from './entities/Enemy.js';
 
@@ -437,7 +437,7 @@ export class Game {
   updateSummons() {
     for (const boss of this.enemies) {
       if (!boss.consumeSummon()) continue;
-      const minionCount = MINIONS_PER_SUMMON;
+      const minionCount = minionsPerSummonForWave(this.wave);
       for (let index = 0; index < minionCount; index += 1) {
         const minion = new Minion(0, boss.y + boss.height + 18, this.assets.moche, this.wave, this.layout);
         const center = boss.x + boss.width / 2 + (index - (minionCount - 1) / 2) * (minion.width + 10);

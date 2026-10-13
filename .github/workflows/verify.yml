@@ -16,6 +16,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # docs/, tests/ y server.js se conservan solo localmente.
+      # docs/ y tests/ se conservan solo localmente.
       # Este job comprueba el build; no ejecuta pruebas automatizadas.
       - run: npm run build

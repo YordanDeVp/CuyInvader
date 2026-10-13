@@ -1,5 +1,6 @@
 import { Projectile } from './Projectile.js';
-import { ENDGAME_WAVE, SUMMON_INTERVAL, MINION_POINTS, guardianCountForWave } from '../GameRules.js';
+import { ENDGAME_WAVE, SUMMON_INTERVAL, MINION_POINTS, guardianCountForWave,
+  bossHealthForWave, minionHealthMultiplierForWave } from '../GameRules.js';
 
 const DESCENT_INTERVAL = 3;
 
@@ -14,7 +15,7 @@ export class Enemy {
     this.sprite = sprite;
     this.index = index;
     this.alive = true;
-    this.maxHealth = this.isBoss ? 10 + (wave - 3) * 3 : Enemy.troopHealthForWave(wave);
+    this.maxHealth = this.isBoss ? bossHealthForWave(wave) : Enemy.troopHealthForWave(wave);
     this.health = this.maxHealth;
     this.points = this.isBoss ? 250 : type === 'chavin' ? 30 : 20;
     this.flash = 0;
@@ -151,7 +152,7 @@ export class Enemy {
     if (this.alive && this.isBoss && this.wave >= ENDGAME_WAVE) this.summonElapsed += dt;
   }
 
-  // Desde la oleada 7 cada jefe conserva su reloj de invocación independiente.
+  // Desde la oleada 5 cada jefe conserva su reloj de invocación independiente.
   consumeSummon() {
     if (!this.alive || !this.isBoss || this.wave < ENDGAME_WAVE || this.summonElapsed + 1e-9 < SUMMON_INTERVAL) return false;
     this.summonElapsed = Math.max(0, this.summonElapsed - SUMMON_INTERVAL);
@@ -265,7 +266,7 @@ export class Minion extends Enemy {
     const progression = Math.max(0, wave - 7);
     this.sizeMultiplier = Math.min(2.2, 1 + progression * 0.08);
     const huacoHealth = Enemy.troopHealthForWave(wave);
-    this.maxHealth = huacoHealth * 2;
+    this.maxHealth = huacoHealth * minionHealthMultiplierForWave(wave);
     this.health = this.maxHealth;
     this.points = MINION_POINTS;
     this.resize(layout);
