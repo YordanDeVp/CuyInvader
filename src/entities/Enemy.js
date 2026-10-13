@@ -86,7 +86,9 @@ export class Enemy {
         const x = (column - (amount - 1) / 2) * pitch;
         const unit = x / (span / 2);
         const arc = name === 'crescent' ? (1 - Math.sqrt(Math.max(0, 1 - unit * unit))) * height * 0.45 : 0;
-        slots.push({ x, y: top + row * gap + arc });
+        // Índices centrados en una cuadrícula común, independientes del arco.
+        slots.push({ x, y: top + row * gap + arc, row,
+          column: column + Math.floor((columns - amount) / 2) });
       }
     });
     // Las formas comparten la misma franja vertical. Antes, el triángulo
@@ -131,6 +133,8 @@ export class Enemy {
 
   // Coordenadas locales del centro: el jefe crece sin saltar de posición.
   setSlot(slot, immediate = false) {
+    this.cellRow = slot.row;
+    this.cellColumn = slot.column;
     this.targetX = slot.x;
     this.targetY = slot.y;
     if (immediate) { this.offsetX = slot.x; this.offsetY = slot.y; }

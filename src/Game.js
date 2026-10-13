@@ -2,6 +2,7 @@ import { InputHandler } from './InputHandler.js';
 import { AudioManager } from './AudioManager.js';
 import { Leaderboard } from './Leaderboard.js';
 import { startGameSession } from './api.js';
+import { RunRecorder, seededRandom, sessionParameters } from './RunReplay.js';
 import { laserIntervalForWave, MINIONS_PER_SUMMON } from './GameRules.js';
 import { Player } from './entities/Player.js';
 import { Enemy, Minion } from './entities/Enemy.js';
@@ -117,6 +118,7 @@ export class Game {
     }, options);
     document.addEventListener('fullscreenchange', () => {
       this.ui.fullscreen.textContent = document.fullscreenElement ? 'SALIR ⤡' : 'AMPLIAR ⤢';
+      this.ui.fullscreen.setAttribute('aria-label', document.fullscreenElement ? 'Salir de pantalla completa' : 'Ampliar a pantalla completa');
       this.resize();
       this.syncUI();
     }, options);
@@ -151,18 +153,25 @@ export class Game {
     // En el layout compacto Flexbox decide el área libre. El mundo usa esa misma
     // proporción para llenar el canvas sin estirar sprites ni sus hitboxes.
     const screen = document.querySelector('.screen').getBoundingClientRect();
-    const height = compact ? Math.max(1, Math.round(screen.height / Math.max(1, screen.width) * width))
+    const height = compact ? Math.max(320, Math.min(1400, Math.round(screen.height / Math.max(1, screen.width) * width)))
       : mobile ? Math.round(Math.max(420, Math.min(1200, (visibleHeight - reservedUI) / Math.max(1, viewWidth) * 600))) : 800;
+    this.resizeWorld(width, height);
+  }
+
+  // También lo usa el servidor al reproducir cambios de tamaño de la partida.
+  resizeWorld(width, height) {
     const oldWidth = this.canvas.width;
     const oldHeight = this.canvas.height;
     if (oldWidth === width && oldHeight === height && this.layout) { this.syncUI(); return; }
     this.canvas.width = width;
     this.canvas.height = height;
-    this.ctx.imageSmoothingEnabled = false;
+    if (this.ctx) this.ctx.imageSmoothingEnabled = false;
     // Los botones ya tienen su franja DOM; reservarla de nuevo dentro del
     // canvas adelantaba el límite de derrota hasta 155 px en móviles.
     this.bottomSpace = 28;
     if (!this.player) return;
+    if (['playing', 'paused', 'upgrade_menu'].includes(this.state)) this.recorder?.event('r', width, height);
+    if (this.recorder) this.recorder.lastInput = '';
     this.pause();
     const oldBottom = this.layout.top + this.layout.height + this.layout.size / 2;
     const descentProgress = Math.max(0, (this.formation.y - this.layout.startY) /
@@ -189,11 +198,14 @@ export class Game {
     this.syncUI();
   }
 
-  reset(state = 'playing') {
+  reset(state = 'playing', token = undefined) {
+    this.sessionController?.abort();
     this.leaderboard?.reset();
     this.runGeneration = (this.runGeneration ?? 0) + 1;
-    this.sessionToken = null;
-    this.leaderboard?.setRunToken(null);
+    this.sessionToken = token ?? null;
+    this.leaderboard?.setRunToken(this.sessionToken);
+    this.random = token ? seededRandom(sessionParameters(token).seed) : Math.random;
+    this.recorder = token ? new RunRecorder(this.canvas.width, this.canvas.height) : null;
     this.state = state;
     this.score = 0;
     this.wave = 0;
@@ -219,23 +231,35 @@ export class Game {
     this.player = new Player(this.canvas.width, this.canvas.height, null, this.assets.projectile, this.assets.pilot);
     this.player.resize(this.canvas.width, this.canvas.height, this.bottomSpace);
     this.spawnWave();
-    if (state === GameState.PLAYING) this.beginGameSession(this.runGeneration);
+    if (state === GameState.PLAYING && token === undefined) this.beginGameSession(this.runGeneration);
   }
 
   beginGameSession(generation) {
-    void startGameSession().then((token) => {
+    const controller = new AbortController();
+    this.sessionController = controller;
+    this.state = 'starting';
+    this.syncUI();
+    // La física empieza después de recibir la semilla firmada. La latencia de
+    // Render ya no acorta artificialmente el tiempo de una partida legítima.
+    void startGameSession({ signal: controller.signal }).then((token) => {
       if (generation !== this.runGeneration) return;
-      this.sessionToken = token;
-      this.leaderboard?.setRunToken(token);
+      sessionParameters(token);
+      this.reset('playing', token);
+      if (this.orientationBlocked || document.hidden) this.pause();
+      this.syncUI();
+      if (this.state === 'playing') this.canvas.focus({ preventScroll: true });
     }).catch((error) => {
       if (generation !== this.runGeneration) return;
       if (typeof window !== 'undefined') {
         console.error('[Cuy Invaders] No se pudo crear la sesión de partida:', error);
       }
-      this.sessionToken = null;
+      this.reset('playing', null);
+      if (this.orientationBlocked || document.hidden) this.pause();
       // La validación solo protege el ranking global. El formulario sigue
       // habilitado y guarda en el navegador si el servicio de sesión falla.
       this.leaderboard?.setRunToken(null);
+      this.syncUI();
+      if (this.state === 'playing') this.canvas.focus({ preventScroll: true });
     });
   }
 
@@ -249,7 +273,7 @@ export class Game {
       const type = index % 2 ? 'moche' : 'chavin';
       return new Enemy(slot, type, this.assets[type], index, this.wave, this.layout);
     });
-    const impostor = Math.floor(Math.random() * this.layout.bosses);
+    const impostor = Math.floor((this.random ?? Math.random)() * this.layout.bosses);
     for (let index = 0; index < this.layout.bosses; index += 1) {
       this.enemies.push(new Enemy(Enemy.bossSlot(index, this.layout), 'boss', this.assets.chavin, index, this.wave, this.layout, index === impostor));
     }
@@ -278,13 +302,15 @@ export class Game {
 
   play() {
     if (this.orientationBlocked) return;
-    if (this.state === 'over') this.reset();
+    if (this.state === 'over') { this.reset(); return; }
     else if (this.state === 'ready') {
       this.runGeneration += 1;
       this.sessionToken = null;
       this.leaderboard?.setRunToken(null);
       this.beginGameSession(this.runGeneration);
+      return;
     }
+    if (this.state !== 'paused') return;
     this.state = 'playing';
     this.syncUI();
     this.canvas.focus({ preventScroll: true });
@@ -301,6 +327,7 @@ export class Game {
     if (kind === 'speed') this.player.upgradeSpeed();
     else if (kind === 'damage') this.player.projectileDamage += 1;
     else return;
+    this.recorder?.event('u', kind === 'speed' ? 0 : 1);
     this.upgradeOfferedWave = this.pendingWave;
     this.pendingWave = null;
     this.state = 'playing';
@@ -344,10 +371,12 @@ export class Game {
     // No se gastan cargas al pulsar Q mientras el jalapeño sigue activo.
     if (kind === 'jalapeno' && this.player.powerTime > 0) return;
     if (!this.player.consumePower(kind)) return;
+    this.recorder?.event('p', kind === 'jalapeno' ? 0 : 1);
     if (kind === 'missile') {
-      // Tres celdas del bloque actual, centradas luego en el enemigo impactado.
+      // La huella física se usa para jefes/secuaces. Las tropas se seleccionan
+      // por sus celdas lógicas actuales, incluso mientras cambian de forma.
       const pitchX = (this.layout.span - this.layout.size) / Math.max(1, this.layout.columns - 1);
-      const rows = Math.ceil(this.layout.count / this.layout.columns);
+      const rows = Math.ceil(this.layout.count * (this.formationIndex === 1 ? 2 : 1) / this.layout.columns);
       const pitchY = this.layout.height / Math.max(1, rows - 1);
       this.projectiles.push(this.player.shootMissile(pitchX * 3, pitchY * 3));
       this.announce('¡Choclo misil lanzado! Explosión de área 3 por 3.');
@@ -360,7 +389,7 @@ export class Game {
     this.syncHUD();
   }
 
-  randomDropInterval() { return 10 + Math.random() * 5; }
+  randomDropInterval() { return 10 + (this.random ?? Math.random)() * 5; }
 
   spawnPowerUp(kind, centerX, y, bubble = true) {
     this.powerUps.push({ kind, bubble, x: Math.max(0, Math.min(this.canvas.width - 44, centerX - 22)), y, width: 44, height: 52 });
@@ -373,8 +402,9 @@ export class Game {
     this.dropElapsed += dt;
     while (this.dropElapsed + 1e-9 >= this.dropInterval) {
       this.dropElapsed = Math.max(0, this.dropElapsed - this.dropInterval);
-      const kind = Math.random() < 0.5 ? 'jalapeno' : 'missile';
-      this.spawnPowerUp(kind, 30 + Math.random() * (this.canvas.width - 60), -52);
+      const random = this.random ?? Math.random;
+      const kind = random() < 0.5 ? 'jalapeno' : 'missile';
+      this.spawnPowerUp(kind, 30 + random() * (this.canvas.width - 60), -52);
       this.dropInterval = this.randomDropInterval();
     }
   }
@@ -433,6 +463,7 @@ export class Game {
     this.defeatReason = reason;
     this.state = 'over';
     this.input.clear();
+    this.leaderboard?.setReplay(this.recorder?.export() ?? null);
     this.syncUI();
   }
 
@@ -484,6 +515,9 @@ export class Game {
   }
 
   detonateMissile(projectile, impact, targets) {
+    const isTroop = (enemy) => !enemy.isBoss && enemy.type !== 'minion';
+    const anchor = isTroop(impact) ? impact : targets.filter(enemy => enemy.alive && isTroop(enemy)).sort((a, b) =>
+      Math.hypot(a.x - impact.x, a.y - impact.y) - Math.hypot(b.x - impact.x, b.y - impact.y))[0];
     const area = {
       x: impact.x + impact.width / 2 - projectile.blastWidth / 2,
       y: impact.y + impact.height / 2 - projectile.blastHeight / 2,
@@ -492,13 +526,19 @@ export class Game {
     // AABB contra un área de 3×3 celdas. Cada enemigo recibe daño una vez;
     // se reutilizan puntuación, drops y la segunda fase del impostor.
     for (const target of targets) {
-      if (target.alive && Game.overlaps(area, target)) this.damageEnemy(target, projectile.damage);
+      // Como máximo tres vecinos por fila y tres filas. La semiluna no puede
+      // multiplicar el daño al comprimir sus coordenadas verticales.
+      const inArea = isTroop(target)
+        ? anchor && Math.abs(target.cellRow - anchor.cellRow) <= 1 && Math.abs(target.cellColumn - anchor.cellColumn) <= 1
+        : Game.overlaps(area, target);
+      if (target.alive && inArea) this.damageEnemy(target, projectile.damage);
     }
     this.explosions.push({ ...area, life: 0.35 });
   }
 
   update(dt) {
     if (this.state !== 'playing') return;
+    this.recorder?.step(this.input);
     this.damageFlash = Math.max(0, this.damageFlash - dt);
     this.revealTime = Math.max(0, this.revealTime - dt);
     this.player.update(dt, this.input, this.canvas.width);
@@ -625,7 +665,8 @@ export class Game {
   syncUI() {
     this.syncHUD();
     this.syncAudio();
-    this.ui.status.textContent = { ready: 'EN ESPERA', playing: 'EN EL VALLE', paused: 'EN PAUSA', over: 'FIN DE PARTIDA', [GameState.UPGRADE_MENU]: 'MEJORA' }[this.state];
+    this.ui.status.textContent = { ready: 'EN ESPERA', starting: 'CONECTANDO', playing: 'EN EL VALLE', paused: 'EN PAUSA', over: 'FIN DE PARTIDA', [GameState.UPGRADE_MENU]: 'MEJORA' }[this.state];
+    this.ui.play.disabled = this.state === 'starting';
     this.ui.pause.disabled = !['playing', 'paused'].includes(this.state);
     this.ui.pause.textContent = this.state === 'paused' ? '▶' : 'Ⅱ';
     this.ui.pause.setAttribute('aria-label', this.state === 'paused' ? 'Reanudar partida' : 'Pausar partida');
@@ -641,6 +682,7 @@ export class Game {
     }
     if (this.ui['damage-upgrade']) this.ui['damage-upgrade'].hidden = this.state !== GameState.UPGRADE_MENU;
     const copy = {
+      starting: ['PREPARANDO PARTIDA', 'Un momento…', 'Conectando con el ranking.', 'CONECTANDO', ''],
       ready: ['UN CUY. UNA AMETRALLADORA.', 'Defiende\nlos Andes.', 'Espacio dispara. Q o Ctrl activa jalapeño; E o Shift lanza el choclo misil 3×3. Guarda hasta 3 cargas de cada poder. Desde la oleada 8 caen burbujas.', 'JUGAR', 'FLECHAS / A D · ESPACIO · Q / CTRL · E / SHIFT'],
       paused: ['TOMA UN RESPIRO.', 'Valle en pausa.', 'Tu cuy te espera. Continúa cuando estés listo.', 'CONTINUAR', 'O PRESIONA P / ENTER'],
       over: [this.defeatReason.toUpperCase(), '¡Buen intento!', 'Guarda tu resultado y vuelve a defender los Andes cuando quieras.', 'JUGAR DE NUEVO', 'O PRESIONA ENTER'],
@@ -750,5 +792,5 @@ export class Game {
       boss: this.enemies.some((enemy) => enemy.alive && enemy.isTrueForm) });
   }
 
-  destroy() { this.input.destroy(); this.audio?.destroy(); this.leaderboard?.destroy(); this.controller.abort(); }
+  destroy() { this.sessionController?.abort(); this.input.destroy(); this.audio?.destroy(); this.leaderboard?.destroy(); this.controller.abort(); }
 }

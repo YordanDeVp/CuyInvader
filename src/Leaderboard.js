@@ -35,6 +35,7 @@ function saveLocalScore({ name, score, wave }) {
   };
   sessionScores.push(entry);
   const scores = readLocalScores();
+  sessionScores = scores.slice(0, LOCAL_SCORE_LIMIT);
   let persistent = false;
   try {
     globalThis.localStorage?.setItem(LOCAL_SCORES_KEY, JSON.stringify(scores));
@@ -158,6 +159,11 @@ export class Leaderboard {
     this.generation += 1;
     this.refreshGeneration += 1;
     this.refreshController?.abort();
+    this.submitController?.abort();
+    clearTimeout(this.retryTimer);
+    this.retryAt = 0;
+    this.pendingPayload = null;
+    this.runReplay = null;
     this.refreshController = null;
     this.loading = false;
     this.refreshButton.disabled = false;
@@ -193,7 +199,7 @@ export class Leaderboard {
     this.resultPanel.hidden = state !== 'over' || this.sent;
     this.panel.hidden = state !== 'over' || !this.sent;
     if (state === 'over' && this.state !== 'over') {
-      this.result = { score, wave, runToken: this.runToken }; // Captura el ticket de esa partida.
+      this.result = { score, wave, runToken: this.runToken, replay: this.runReplay };
       this.finalScore.textContent = Number(score).toLocaleString('es-PE');
       this.finalWave.textContent = String(wave).padStart(2, '0');
       this.reason.textContent = reason;
@@ -248,48 +254,45 @@ export class Leaderboard {
     }
   }
 
+  setReplay(replay) { this.runReplay = replay; }
+
   async submit() {
     if (this.state !== 'over' || !this.result || this.sending || this.sent || !this.form.reportValidity()) return;
-    const name = this.nameInput.value.slice(0, NAME_MAX_LENGTH).trim().normalize('NFC');
+    if (Date.now() < this.retryAt) { this.message.textContent = 'Espera unos segundos antes de reintentar.'; return; }
+    const name = this.pendingPayload?.name ?? this.nameInput.value.slice(0, NAME_MAX_LENGTH).trim().normalize('NFC');
     if (!name) {
       this.message.textContent = 'Ingresa un nombre.';
       this.nameInput.focus({ preventScroll: true });
       return;
     }
     const generation = this.generation;
+    const controller = new AbortController();
+    this.submitController = controller;
     this.sending = true;
     this.button.disabled = true;
     this.nameInput.disabled = true;
     this.button.textContent = 'GUARDANDO…';
     this.message.textContent = 'Guardando…';
     try {
-      let remoteError = null;
-      if (this.result.runToken) {
-        try {
-          await submitScore({ ...this.result, name });
-        } catch (error) {
-          remoteError = error;
-        }
-      } else {
-        remoteError = new Error('No hay una sesión válida para el ranking global.');
-      }
-      if (generation !== this.generation) return;
-
-      if (remoteError) {
-        // El ticket de servidor protege el ranking global. Si falla la sesión,
-        // conservamos el resultado en este navegador en vez de perderlo.
+      if (!this.result.runToken) {
+        // Sin sesión desde el inicio, este resultado solo pertenece al dispositivo.
         const local = saveLocalScore({ name, score: this.result.score, wave: this.result.wave });
         this.savedLocally = true;
         this.sent = true;
         this.title.textContent = 'TOP 10 LOCAL';
         renderTopScores(this.body, local.scores);
         this.status.textContent = local.persistent
-          ? 'Guardado en este dispositivo. No se publicó en el ranking global.'
+          ? 'Partida sin conexión guardada en este dispositivo.'
           : 'Guardado temporalmente en esta sesión; el navegador bloqueó el almacenamiento local.';
-        this.refreshButton.hidden = false;
         this.openRanking();
         return;
       }
+
+      // Un POST incierto se reintenta con exactamente el mismo ticket y nombre.
+      this.pendingPayload ??= { ...this.result, name };
+      this.nameInput.value = this.pendingPayload.name;
+      await submitScore(this.pendingPayload, { signal: controller.signal });
+      if (generation !== this.generation || controller.signal.aborted) return;
 
       this.sent = true;
       this.savedLocally = false;
@@ -299,12 +302,30 @@ export class Leaderboard {
       this.openRanking();
       await this.refresh();
     } catch (error) {
-      if (generation === this.generation) this.message.textContent = error.message;
+      if (generation !== this.generation || controller.signal.aborted) return;
+      const uncertain = !error.status || error.status >= 500 || error.status === 429 || (error.status >= 200 && error.status < 300);
+      if (uncertain && !this.savedLocally) {
+        saveLocalScore({ name, score: this.result.score, wave: this.result.wave });
+        this.savedLocally = true;
+      }
+      // Un rechazo previo a la escritura permite corregir el nombre. Una
+      // respuesta perdida conserva el payload original para evitar duplicados.
+      if ([400, 422].includes(error.status)) this.pendingPayload = null;
+      // La copia local no confirma el envío global. Solo HTTP 200/201 cierra
+      // el formulario; un error restaura los controles para confirmar el POST.
+      this.message.textContent = error.message;
+      if (uncertain) this.message.textContent += ' Hay una copia local; el envío global sigue pendiente.';
+      if (error.retryAfterMs) {
+        this.retryAt = Date.now() + error.retryAfterMs;
+        this.retryTimer = setTimeout(() => {
+          if (generation === this.generation && !this.sent) { this.button.disabled = false; this.button.textContent = 'GUARDAR'; }
+        }, error.retryAfterMs);
+      }
     } finally {
       if (generation === this.generation) {
         this.sending = false;
         this.nameInput.disabled = this.sent;
-        this.button.disabled = this.sent;
+        this.button.disabled = this.sent || Date.now() < this.retryAt;
         this.button.textContent = this.sent ? 'GUARDADO ✓' : 'GUARDAR';
       }
     }
@@ -319,5 +340,5 @@ export class Leaderboard {
     this.title.focus?.({ preventScroll: true });
   }
 
-  destroy() { this.generation += 1; this.controller.abort(); }
+  destroy() { this.reset(); this.controller.abort(); }
 }

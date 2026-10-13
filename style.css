@@ -22,6 +22,8 @@ h1 i { color: #81dec3; font-style: normal; margin-left: 14px; }
 .power-inventory .inventory small { font-size: 8px; }
 .hud #sound { font-size: 8px; padding: 4px; }
 .hud > div { display: grid; gap: 4px; }
+/* Mantiene cada botón en el flujo de escritorio; móvil agrupa las acciones. */
+.hud > .hud-actions { display: contents; }
 .hud > div > span { font-size: 8px; letter-spacing: 1px; color: #9aabac; }
 .hud strong { font-size: 20px; font-weight: normal; }
 #score { color: #f1ba62; }
@@ -192,7 +194,7 @@ footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 8
     margin: 0; padding: 0; z-index: 2; pointer-events: none;
   }
   .masthead .eyebrow, .status, h1 i, footer, .hud > .speed-stat,
-  .hud .expand, .screen-label, .controls { display: none; }
+  .screen-label, .controls { display: none; }
   h1 { font-size: clamp(10px, 3vw, 16px); letter-spacing: -.5px; white-space: nowrap; }
   h1 span { margin-left: 2px; }
   .hud {
@@ -214,9 +216,12 @@ footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 8
   .power-inventory .inventory b { font-size: 11px; }
   .power-inventory .inventory small { font-size: 7px; }
   /* Pausa y sonido comparten siempre la segunda fila, a la derecha. */
-  .hud #pause { grid-area: 2 / 3; margin-right: 4px; }
-  .hud #sound { grid-area: 2 / 4; font-size: 8px; padding: 2px; }
-  .hud #pause, .hud #sound { width: auto; min-width: 44px; min-height: 44px; }
+  .hud > .hud-actions { grid-area: 2 / 3 / 3 / 5; display: flex; gap: 2px; }
+  .hud-actions #fullscreen, .hud-actions #pause, .hud-actions #sound {
+    display: block; flex: 1; width: 0; min-width: 44px; min-height: 44px; padding: 2px;
+    font-size: 7px; letter-spacing: 0; white-space: normal;
+  }
+  .hud-actions #pause { font-size: 16px; }
   .battlebar {
     flex: none; flex-wrap: nowrap; min-height: 24px; padding: 6px 8px;
     gap: 12px; overflow-x: auto; font-size: 8px; scrollbar-width: none;

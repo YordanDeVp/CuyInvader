@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import {
-  createApp, createGameTicket, maximumPlausibleScore, minimumRunDurationMs,
+  createApp, createGameTicket,
   validateEntry, verifyGameTicket,
 } from '../server.js';
 import { Leaderboard, renderTopScores } from '../src/Leaderboard.js';
+import { startGameSession } from '../src/api.js';
+import { RULES_VERSION } from '../src/RunReplay.js';
+const UNIT_REPLAY = { version: RULES_VERSION, world: [1200,800], steps: 1, events: [] };
 
 const valid = { name: ' José Muñoz ', score: 12345, wave: 8 };
 const TEST_SECRET = 'test-secret-for-game-ticket-tests-32-bytes';
@@ -47,23 +50,25 @@ function database({ failure = false, throws = false } = {}) {
 
 async function fixture(t, db = database()) {
   let now = Date.UTC(2026, 9, 12);
-  const server = createApp(db, { gameSessionSecret: TEST_SECRET, now: () => now }).listen(0, '127.0.0.1');
+  const server = createApp(db, { gameSessionSecret: TEST_SECRET, now: () => now,
+    // Estos tests prueban el contrato HTTP. replay.test.mjs usa el verificador real.
+    runVerifier: async (_token, _replay, entry) => entry, logger: () => {} }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }));
   const url = 'http://127.0.0.1:' + server.address().port;
   const issueToken = async () => {
-    const response = await fetch(url + '/api/game-session', { method: 'POST' });
+    const response = await fetch(url + '/api/start-session');
     return (await response.json()).token;
   };
-  return { db, url, get: (route = '/api/leaderboard') => fetch(url + route), issueToken, advance: (ms) => { now += ms; },
-    post: async (body = valid, headers = { 'Content-Type': 'application/json' }) => {
+  return { db, url, get: (route = '/api/scores') => fetch(url + route), issueToken, advance: (ms) => { now += ms; },
+    post: async (body = valid, headers = { 'Content-Type': 'application/json' }, route = '/api/scores') => {
       let payload = body;
       if (typeof body !== 'string') {
         const token = body.runToken ?? await issueToken();
-        payload = { ...body, runToken: token };
-        now += Math.max(10_000, minimumRunDurationMs(Number(payload.wave) || 1));
+        payload = { ...body, runToken: token, replay: body.replay ?? UNIT_REPLAY };
+        now += 120000;
       }
-      return fetch(url + '/api/leaderboard', {
+      return fetch(url + route, {
         method: 'POST', headers, body: typeof payload === 'string' ? payload : JSON.stringify(payload),
       });
     } };
@@ -84,16 +89,15 @@ test('valida un único nombre Unicode, su límite e impide coerción y campos pr
   assert.ok(validateEntry({ ...valid, score: Number.MAX_SAFE_INTEGER, wave: 10000 }));
 });
 
-test('firma tickets del servidor, expira tickets antiguos y limita tiempo y puntos', () => {
+test('firma semilla y reglas, expira tickets antiguos y rechaza modificaciones', () => {
   const now = Date.UTC(2026, 9, 12);
   const token = createGameTicket(TEST_SECRET, now);
   assert.ok(verifyGameTicket(token, TEST_SECRET, now + 1000));
   assert.equal(verifyGameTicket(token + 'x', TEST_SECRET, now + 1000), null);
   assert.equal(verifyGameTicket(token, 'another-secret-that-is-at-least-32-bytes', now + 1000), null);
   assert.equal(verifyGameTicket(token, TEST_SECRET, now + 6 * 60 * 60 * 1000 + 1), null);
-  assert.equal(minimumRunDurationMs(8), 120_000);
-  assert.ok(maximumPlausibleScore(8, 120_000) > maximumPlausibleScore(1, 0));
-  assert.ok(maximumPlausibleScore(7, 60_000) >= maximumPlausibleScore(7, 0) + 20 * 4 * 15);
+  assert.equal(verifyGameTicket(createGameTicket(TEST_SECRET, now + 1), TEST_SECRET, now), null);
+  assert.equal(verifyGameTicket(token, TEST_SECRET, now).rules, RULES_VERSION);
 });
 
 test('POST guarda un nombre libre en una sola columna', async (t) => {
@@ -149,7 +153,7 @@ test('al presionar Guardar, el cliente envía nombre, puntaje y oleada y el serv
   });
 
   const db = database();
-  const { url, issueToken, advance } = await fixture(t, db);
+  const { url, advance } = await fixture(t, db);
   const nativeFetch = globalThis.fetch;
   const clientRequests = [];
   globalThis.fetch = async (input, options = {}) => {
@@ -158,10 +162,11 @@ test('al presionar Guardar, el cliente envía nombre, puntaje y oleada y el serv
     return nativeFetch(target, options);
   };
 
-  const token = await issueToken();
-  advance(minimumRunDurationMs(3));
+  const token = await startGameSession();
+  advance(120000);
   const board = new Leaderboard();
   board.setRunToken(token);
+  board.setReplay(UNIT_REPLAY);
   board.sync('over', 2410, 3);
   board.nameInput.value = 'Yordan';
   let pendingSave;
@@ -178,9 +183,9 @@ test('al presionar Guardar, el cliente envía nombre, puntaje y oleada y el serv
   );
   assert.match(inserted.run_id, /^[0-9a-f-]{36}$/i);
   assert.deepEqual(clientRequests, [
-    { path: '/api/game-session', method: 'POST' },
-    { path: '/api/leaderboard', method: 'POST' },
-    { path: '/api/leaderboard', method: 'GET' },
+    { path: '/api/start-session', method: 'GET' },
+    { path: '/api/scores', method: 'POST' },
+    { path: '/api/scores', method: 'GET' },
   ]);
   assert.equal(board.sent, true);
   assert.equal(board.rankingCard.hidden, false);
@@ -199,20 +204,20 @@ test('requiere ticket firmado y hace idempotente el mismo envío, rechazando cam
   assert.equal((await post({ ...valid, name: 'Otro nombre', runToken: token })).status, 409);
 });
 
-test('rechaza partidas demasiado rápidas y puntajes por encima de su cota', async (t) => {
+test('rechaza simulaciones más largas que la duración real de la sesión', async (t) => {
   const { issueToken, url, advance } = await fixture(t);
-  const send = (token, score, wave) => fetch(url + '/api/leaderboard', {
+  const send = (token, score, wave) => fetch(url + '/api/scores', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...valid, score, wave, runToken: token }),
+    body: JSON.stringify({ ...valid, score, wave, runToken: token, replay: { ...UNIT_REPLAY, steps: 14400 } }),
   });
   const tooFast = await issueToken();
-  advance(minimumRunDurationMs(1) - 1);
+  advance(5000);
   assert.equal((await send(tooFast, 0, 1)).status, 422);
   const fakeWaveEight = await issueToken();
   advance(5_000);
   assert.equal((await send(fakeWaveEight, 15_000, 8)).status, 422);
   const inflated = await issueToken();
-  advance(minimumRunDurationMs(8));
+  advance(5000);
   assert.equal((await send(inflated, Number.MAX_SAFE_INTEGER, 8)).status, 422);
 });
 
@@ -221,18 +226,22 @@ test('rechaza entrada inválida, JSON roto, formularios y cuerpos excesivos ante
   assert.equal((await post({ ...valid, score: '999' })).status, 400);
   assert.equal((await post('{broken')).status, 400);
   assert.equal((await post('a=b', { 'Content-Type': 'application/x-www-form-urlencoded' })).status, 415);
-  assert.equal((await post({ ...valid, name: 'a'.repeat(3000) })).status, 413);
+  assert.equal((await post({ ...valid, name: 'a'.repeat(600000) })).status, 413);
   assert.equal(db.calls.length, 0);
 });
 
 test('no sirve secretos, código de servidor ni SQL; el juego sí está disponible', async (t) => {
   const { get } = await fixture(t);
   for (const route of ['/.env', '/.env.example', '/server.js', '/package.json', '/.git/config', '/node_modules/express/package.json',
-    '/supabase/migrations/202610120001_leaderboard.sql', '/src/%2e%2e/server.js']) {
+    '/backend/replay-worker.mjs', '/backend/verify-run.mjs', '/.github/workflows/verify.yml', '/audit/preview.mjs',
+    '/supabase/migrations/202610120001_leaderboard.sql', '/src/%2e%2e/server.js', '/scripts/build-client.mjs',
+    '/README.md', '/tests/leaderboard.test.mjs', '/render.yaml', '/assets/..%2Fserver.js']) {
     assert.equal((await get(route)).status, 404, route);
   }
   assert.equal((await get('/')).status, 200);
   assert.equal((await get('/src/api.js')).status, 200);
+  assert.equal((await get('/style.css')).status, 200);
+  assert.equal((await get('/assets/sprites-andinos.jpg')).status, 200);
   assert.equal((await get('/api/health')).status, 200);
 });
 
@@ -246,13 +255,56 @@ test('la BD caída y excepciones no exponen mensajes internos', async (t) => {
   }
 });
 
-test('limita escrituras a cinco por minuto e incluye Retry-After', async (t) => {
-  const { post, db } = await fixture(t);
-  for (let i = 0; i < 5; i++) assert.equal((await post()).status, 201);
-  const response = await post();
+test('limita reintentos por ticket sin bloquear a jugadores con la misma IP', async (t) => {
+  const { post, issueToken, db } = await fixture(t);
+  for (let i = 0; i < 25; i++) assert.equal((await post()).status, 201);
+  const token = await issueToken();
+  for (let i = 0; i < 6; i++) assert.ok([200,201].includes((await post({ ...valid, runToken: token })).status));
+  const response = await post({ ...valid, runToken: token });
   assert.equal(response.status, 429);
   assert.ok(Number(response.headers.get('retry-after')) > 0);
-  assert.equal(db.calls.filter(([name]) => name === 'insert').length, 5);
+  assert.equal(db.calls.filter(([name]) => name === 'insert').length, 26);
+});
+
+test('emite la sesión por GET sin cachear ni exponer el secreto; conserva las rutas anteriores', async (t) => {
+  const { get, post, url } = await fixture(t);
+  const response = await get('/api/start-session');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const session = await response.json();
+  assert.deepEqual(Object.keys(session), ['token']);
+  assert.ok(verifyGameTicket(session.token, TEST_SECRET, Date.UTC(2026, 9, 12)));
+  assert.ok(!JSON.stringify(session).includes(TEST_SECRET));
+  const legacy = await fetch(url + '/api/game-session', { method: 'POST' });
+  assert.equal(legacy.status, 201);
+  assert.equal((await post(valid, { 'Content-Type': 'application/json' }, '/api/leaderboard')).status, 201);
+  assert.equal((await get('/api/leaderboard')).status, 200);
+});
+
+test('las rutas API inexistentes y los métodos incorrectos responden JSON, nunca index.html', async (t) => {
+  const { get, url } = await fixture(t);
+  const missing = await get('/api/not-a-route');
+  assert.equal(missing.status, 404);
+  assert.match(missing.headers.get('content-type'), /application\/json/);
+  assert.deepEqual(await missing.json(), { error: 'Ruta no encontrada.' });
+  for (const [route, method, allow] of [['/api/start-session', 'POST', 'GET'], ['/api/scores', 'DELETE', 'GET, POST']]) {
+    const response = await fetch(url + route, { method });
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get('allow'), allow);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+  }
+});
+
+test('el cliente detecta un Static Site que devuelve HTML en lugar del ticket JSON', async (t) => {
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, '/api/start-session');
+    assert.equal(options.method, 'GET');
+    assert.equal(options.credentials, 'same-origin');
+    return { status: 200, headers: { get: () => 'text/html; charset=utf-8' } };
+  };
+  await assert.rejects(startGameSession(), /La API respondió una página en lugar de JSON/);
 });
 
 test('reset cancela la consulta pendiente y una respuesta tardía no modifica el ranking', async (t) => {
@@ -370,7 +422,7 @@ test('el formulario y Top 10 solo aparecen al perder; guardar abre el ranking y 
   finishRanking();
   await pendingSave;
   assert.deepEqual(requests.map(({ method }) => method), ['POST', 'GET']);
-  assert.deepEqual(requests[0].body, { name: 'Ana Quispe', score: 420, wave: 3, runToken: 'signed-test-ticket' });
+  assert.deepEqual(requests[0].body, { name: 'Ana Quispe', score: 420, wave: 3, runToken: 'signed-test-ticket', replay: null });
   assert.equal(board.panel.hidden, false);
   assert.equal(board.entryCard.hidden, true);
   assert.equal(board.rankingCard.hidden, false);
@@ -424,7 +476,7 @@ test('si falla el envío global, conserva el puntaje en el ranking local y liber
   globalThis.fetch = async (_url, options = {}) => {
     if (options.method === 'POST') {
       postAttempts += 1;
-      return { ok: false, status: 422, json: async () => ({ error: 'La duración no es suficiente.' }) };
+      return { ok: false, status: 503, json: async () => ({ error: 'No se pudo confirmar el envío.' }) };
     }
     return { ok: true, status: 200, json: async () => [] };
   };
@@ -440,14 +492,15 @@ test('si falla el envío global, conserva el puntaje en el ranking local y liber
   board.nameInput.value = 'Yordan';
   await board.submit();
   assert.equal(postAttempts, 1);
-  assert.equal(board.sent, true);
+  assert.equal(board.sent, false);
   assert.equal(board.savedLocally, true);
-  assert.equal(board.entryCard.hidden, true);
-  assert.equal(board.rankingCard.hidden, false);
-  assert.equal(board.nameInput.disabled, true);
-  assert.equal(board.button.textContent, 'GUARDADO ✓');
-  assert.equal(board.title.textContent, 'TOP 10 LOCAL');
-  assert.match(board.status.textContent, /Guardado en este dispositivo/);
+  assert.equal(board.entryCard.hidden, false);
+  assert.equal(board.rankingCard.hidden, true);
+  assert.equal(board.nameInput.disabled, false);
+  assert.equal(board.button.textContent, 'GUARDAR');
+  assert.match(board.message.textContent, /confirmar/);
+  await board.submit();
+  assert.equal(postAttempts, 2);
   const localScores = JSON.parse(storageData.get('cuy-invaders-local-leaderboard-v1'));
   assert.ok(localScores.some((entry) => entry.name === 'Yordan' && entry.score === 150 && entry.wave === 2));
   board.reset();
