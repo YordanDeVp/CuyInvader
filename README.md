@@ -35,7 +35,7 @@ El despliegue monolítico usa un único **Web Service** en Render: runtime Node 
 | Variable | Valor |
 | --- | --- |
 | `SUPABASE_URL` | URL HTTPS del proyecto Supabase CuyInvader |
-| `SUPABASE_SERVICE_KEY` | Clave secreta de servidor `service_role`; nunca la clave `anon` ni una clave `sb_publishable` |
+| `SUPABASE_SERVICE_KEY` | Clave de servidor `sb_secret_...` (recomendada) o `service_role` Legacy; nunca `anon` ni `sb_publishable_...` |
 | `GAME_SESSION_SECRET` | Secreto aleatorio único de al menos 32 bytes. Genera con `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` |
 | `TRUST_PROXY_HOPS` | `1` en Render para que el límite use la IP real detrás del proxy |
 
