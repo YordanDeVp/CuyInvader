@@ -3,7 +3,7 @@ services:
   - type: web
     name: cuyinvader-web
     runtime: node
-    branch: codex/server-session-monolith
+    branch: main
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start

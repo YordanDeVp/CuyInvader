@@ -1,13 +1,13 @@
 # Despliegue de la corrección
 
-El código local de `codex/server-session-monolith` es un monolito. Un Static Site de Render no ejecuta sus rutas `/api/*`. En la auditoría del 12 de octubre, `cuyinvader.onrender.com` respondía 404 en esas rutas y servía `server.js` como archivo; esa publicación no demuestra que funcione este backend.
+La corrección desarrollada en `codex/server-session-monolith` se integra en `main` para publicar el monolito. Un Static Site de Render no ejecuta sus rutas `/api/*`. En la auditoría del 12 de octubre, `cuyinvader.onrender.com` respondía 404 en esas rutas y servía `server.js` como archivo; esa publicación no demuestra que funcione este backend.
 
 ## Configuración del Web Service
 
 | Campo | Valor |
 | --- | --- |
 | Repositorio | `YordanDeVp/CuyInvader` |
-| Rama de pruebas | `codex/server-session-monolith` |
+| Rama de producción | `main` |
 | Tipo | Web Service, Node |
 | Plan | Free |
 | Root Directory | raíz del repositorio, vacío |
@@ -26,7 +26,7 @@ Variables privadas: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` real de servidor y `G
 2. Comprueba que `leaderboard` tiene `name`, `score`, `wave`, `created_at`, `id`, `run_id` y el índice único de `run_id`. RLS debe seguir activado, sin políticas públicas; el backend usa permisos de servicio para SELECT/INSERT.
 3. Con las claves reales, ejecuta `npm start` y comprueba `/api/ready`: HTTP 200, JSON `status: ready`. Si devuelve 503, usa el request ID y el código de los logs para diagnosticar Supabase.
 4. Juega una partida completa en el navegador. Guardar debe registrar el mismo nombre, puntaje y oleada y mostrar el Top 10. Prueba reiniciar durante una consulta, reintentar tras cortar conexión y ambas orientaciones móviles.
-5. Sube únicamente la rama de corrección cuando se haya revisado. Despliega esa rama en el Web Service Free. Recarga el navegador: la versión nueva exige un replay; una partida antigua no puede publicarse con este contrato.
+5. Integra la rama de corrección revisada en `main` y publica `main` en el Web Service Free. Recarga el navegador: la versión nueva exige un replay; una partida antigua no puede publicarse con este contrato.
 6. Comprueba en la URL del **Web Service** `/`, `/api/ready`, `/api/start-session` y `/api/scores`. Deben responder correctamente. `/server.js`, `/backend/replay-worker.mjs`, `/.env`, `/render.yaml` y `/supabase/*` deben dar 404.
 
 El Blueprint no convierte un Static Site existente en Web Service. Crear un servicio nuevo puede producir una URL distinta. Conserva el sitio anterior durante las pruebas; no borres servicios ni cambies dominios sin verificar el servicio nuevo.

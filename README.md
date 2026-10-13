@@ -133,4 +133,4 @@ Las pistas WAV originales incluidas se sintetizan con `node scripts/generate-aud
 
 Las tarjetas usan exactamente los PNG suministrados: `assets/upgrade-speed.png` y `assets/upgrade-damage.png`, dentro de botones con `<img>` y `object-fit: contain`. El área completa es clicable y se conserva el modal compacto. Las mejoras siguen siendo +20 % de movimiento o +1 de daño por choclo; el texto artístico de los PNG menciona disparos rápidos y bombas, pero el ataque 3×3 sigue siendo el poder del misil, no una mejora permanente.
 
-La configuración y el procedimiento de rollback están en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). La rama de corrección es `codex/server-session-monolith`; el Blueprint apunta a esa rama y conserva el plan Free.
+La configuración y el procedimiento de rollback están en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). La corrección se desarrolló en `codex/server-session-monolith`; el Blueprint de producción apunta a `main` y conserva el plan Free. Las claves, los scripts SQL y los informes locales de auditoría quedan fuera de la publicación.
