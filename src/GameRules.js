@@ -1,12 +1,19 @@
 // Reglas compartidas: el servidor valida puntos con el mismo balance del juego.
 export const ENDGAME_WAVE = 5;
 export const EXTREME_WAVE = 10;
-export const ENDGAME_BOSSES = 2;
+export const ENDGAME_BOSSES = 6; // Cuatro jefes normales y dos impostores.
+export const LASER_BURST_WAVE = 7;
+export const LASER_BURST_DELAY = 0.18;
+export const MAX_SPEED_MULTIPLIER = 7;
 export const SUMMON_INTERVAL = 3;
 export const MINION_POINTS = 15;
 
 export function guardianCountForWave(wave) {
   return wave >= ENDGAME_WAVE ? ENDGAME_BOSSES : wave >= 3 ? 4 : 0;
+}
+
+export function impostorCountForWave(wave) {
+  return wave >= ENDGAME_WAVE ? 2 : wave >= 3 ? 1 : 0;
 }
 
 export function laserIntervalForWave(wave) {

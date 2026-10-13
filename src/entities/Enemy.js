@@ -1,6 +1,7 @@
 import { Projectile } from './Projectile.js';
 import { ENDGAME_WAVE, SUMMON_INTERVAL, MINION_POINTS, guardianCountForWave,
-  bossHealthForWave, minionHealthMultiplierForWave } from '../GameRules.js';
+  bossHealthForWave, minionHealthMultiplierForWave, MAX_SPEED_MULTIPLIER,
+  LASER_BURST_DELAY, EXTREME_WAVE } from '../GameRules.js';
 
 const DESCENT_INTERVAL = 3;
 
@@ -21,15 +22,17 @@ export class Enemy {
     this.flash = 0;
     this.revealTime = 0;
     this.aim = null;
+    this.hasLaserBurst = false;
+    this.pendingLaser = null;
     this.resize(layout);
     this.setSlot(slot, true);
   }
 
   static guardianCount(wave) { return guardianCountForWave(wave); }
-  static speedForWave(wave) { return 64 * 1.1 ** (wave - 1); }
+  static speedForWave(wave) { return 64 * Math.min(MAX_SPEED_MULTIPLIER, 1.1 ** (wave - 1)); }
   static troopHealthForWave(wave) { return 1 + Math.floor((wave - 1) / 3); }
 
-  // La densidad crece hasta 72 tropas; la vida y la velocidad siguen aumentando.
+  // La densidad crece hasta 72 tropas; la velocidad lateral se limita a 7x.
   static layout(wave, width, height, playerY = height - (width <= 640 ? 64.5 : 86) - 28, retainedCount = null) {
     const mobile = width <= 640;
     let gap = 12;
@@ -37,12 +40,15 @@ export class Enemy {
     const safetyMargin = 96;
     const spawnLimit = playerY - safetyMargin;
     const bosses = Enemy.guardianCount(wave);
-    const bossSize = mobile ? 52 : 72;
     const baseSize = mobile ? 32 : 46;
+    // Reserva el ancho de la forma revelada: seis jefes caben incluso en móvil.
+    const bossSize = Math.min(mobile ? 52 : 72,
+      bosses ? (width - baseSize * 5 - (bosses - 1) * gap) / (bosses * 1.8) : Infinity);
+    const bossFootprint = bosses >= 6 ? bossSize * 1.8 : bossSize;
     let size = baseSize;
     const columns = Math.min((mobile ? 8 : 12) + Math.floor((wave - 1) / 3), Math.floor((width - baseSize * 5) / (baseSize * 1.15)));
     const availableColumns = Math.max(2, Math.min(columns, Math.floor((width - size * 5 + gap) / (size + gap))));
-    const troopTop = bosses ? bossSize + gap : 0;
+    const troopTop = bosses ? bossFootprint + gap : 0;
     const availableHeight = Math.max(1, spawnLimit - startY - troopTop);
     const maxRows = Math.max(1, Math.floor((availableHeight + gap) / (size + gap)));
     // La forma más alta es el triángulo: recortamos tropas antes de crearlas,
@@ -60,7 +66,7 @@ export class Enemy {
     const depth = (triangleRows - 1) * (size + gap);
     // En cada borde quedan exactamente 2,5 cabezas al centrar el bloque.
     return { count, columns: availableColumns, size, span: width - size * 5, height: depth,
-      bossSize, top: troopTop + size / 2, bosses, mobile, gap, startY, safetyMargin, spawnLimit };
+      bossSize, bossFootprint, top: troopTop + size / 2, bosses, mobile, gap, startY, safetyMargin, spawnLimit };
   }
 
   static slotsForFormation(name, layout) {
@@ -176,6 +182,7 @@ export class Enemy {
       this.points = 600;
       this.revealTime = 0.9;
       this.aim = null;
+      this.pendingLaser = null;
       return 'reveal';
     }
     this.alive = false;
@@ -193,10 +200,29 @@ export class Enemy {
   fireLasers() {
     if (!this.aim || !this.alive || this.revealTime > 0) return [];
     const speed = this.laserSpeed * (this.isTrueForm ? 1.2 : 1);
+    if (this.hasLaserBurst) {
+      // Exactamente dos disparos separados por 180 ms, no dos salvas completas.
+      const [eye] = this.eyes;
+      const target = this.aim;
+      this.pendingLaser = { target, speed, remaining: LASER_BURST_DELAY };
+      this.aim = null;
+      return [Projectile.laser(eye.x, eye.y, target, speed, -0.12)];
+    }
     const lasers = this.eyes.map((eye, index) => Projectile.laser(eye.x, eye.y, this.aim, speed, (index ? 1 : -1) * 0.12));
     if (this.isTrueForm) lasers.push(Projectile.laser(this.x + this.width / 2, this.y + this.height * 0.8, this.aim, speed));
     this.aim = null;
     return lasers;
+  }
+
+  updateLaserBurst(dt) {
+    if (!this.alive || this.revealTime > 0) { this.pendingLaser = null; return []; }
+    if (!this.pendingLaser) return [];
+    this.pendingLaser.remaining -= dt;
+    if (this.pendingLaser.remaining > 1e-9) return [];
+    const { target, speed } = this.pendingLaser;
+    this.pendingLaser = null;
+    const eye = this.eyes[1];
+    return [Projectile.laser(eye.x, eye.y, target, speed, 0.12)];
   }
 
   draw(ctx) {
@@ -269,6 +295,8 @@ export class Minion extends Enemy {
     this.maxHealth = huacoHealth * minionHealthMultiplierForWave(wave);
     this.health = this.maxHealth;
     this.points = MINION_POINTS;
+    this.bladeElapsed = 0;
+    this.bladeInterval = null;
     this.resize(layout);
   }
 
@@ -287,5 +315,17 @@ export class Minion extends Enemy {
     this.y += this.speed * dt;
     this.flash = Math.max(0, this.flash - dt);
     if (this.y > height) this.alive = false;
+  }
+
+  fireBlade(dt, isLastRow, player, random) {
+    if (!this.alive || this.wave < EXTREME_WAVE || !isLastRow) return null;
+    // El RNG de la partida es sembrado: servidor y cliente repiten los mismos intervalos.
+    if (this.bladeInterval === null) this.bladeInterval = 3 + random() * 3;
+    this.bladeElapsed += dt;
+    if (this.bladeElapsed + 1e-9 < this.bladeInterval) return null;
+    this.bladeElapsed = Math.max(0, this.bladeElapsed - this.bladeInterval);
+    this.bladeInterval = 3 + random() * 3;
+    return Projectile.shuriken(this.x + this.width / 2, this.y + this.height, player,
+      this.laserSpeed * 1.1);
   }
 }

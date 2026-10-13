@@ -3,7 +3,8 @@ import { AudioManager } from './AudioManager.js';
 import { Leaderboard } from './Leaderboard.js';
 import { startGameSession } from './api.js';
 import { RunRecorder, seededRandom, sessionParameters } from './RunReplay.js';
-import { laserIntervalForWave, minionsPerSummonForWave } from './GameRules.js';
+import { laserIntervalForWave, minionsPerSummonForWave, impostorCountForWave,
+  LASER_BURST_WAVE, EXTREME_WAVE } from './GameRules.js';
 import { Player } from './entities/Player.js';
 import { Enemy, Minion } from './entities/Enemy.js';
 
@@ -273,9 +274,12 @@ export class Game {
       const type = index % 2 ? 'moche' : 'chavin';
       return new Enemy(slot, type, this.assets[type], index, this.wave, this.layout);
     });
-    const impostor = Math.floor((this.random ?? Math.random)() * this.layout.bosses);
+    const impostors = this.randomBossIndices(impostorCountForWave(this.wave));
+    const burstBosses = this.randomBossIndices(this.wave >= LASER_BURST_WAVE ? 2 : 0);
     for (let index = 0; index < this.layout.bosses; index += 1) {
-      this.enemies.push(new Enemy(Enemy.bossSlot(index, this.layout), 'boss', this.assets.chavin, index, this.wave, this.layout, index === impostor));
+      const boss = new Enemy(Enemy.bossSlot(index, this.layout), 'boss', this.assets.chavin, index, this.wave, this.layout, impostors.has(index));
+      boss.hasLaserBurst = burstBosses.has(index);
+      this.enemies.push(boss);
     }
     this.enemies.forEach((enemy) => enemy.update(0, this.formation));
     this.laserElapsed = 0;
@@ -284,6 +288,17 @@ export class Game {
     this.revealTime = 0;
     this.syncUI();
     this.announce('Oleada ' + this.wave + '. ' + this.layout.count + ' tropas y ' + this.layout.bosses + ' guardianes.');
+  }
+
+  randomBossIndices(amount) {
+    // Muestreo sin reemplazo: evita seleccionar dos veces el mismo jefe.
+    const pool = Array.from({ length: this.layout.bosses }, (_, index) => index);
+    const selected = new Set();
+    const random = this.random ?? Math.random;
+    while (selected.size < amount && pool.length) {
+      selected.add(pool.splice(Math.floor(random() * pool.length), 1)[0]);
+    }
+    return selected;
   }
 
   announce(message) { this.ui.announcement.textContent = message; }
@@ -425,12 +440,28 @@ export class Game {
 
   updateLasers(dt) {
     if (!this.enemies.some((enemy) => enemy.isBoss)) return;
+    // Procesar antes de la salva evita consumir el retraso en el frame inicial.
+    this.enemies.forEach((enemy) => this.enemyProjectiles.push(...enemy.updateLaserBurst(dt)));
     const interval = laserIntervalForWave(this.wave);
     this.laserElapsed += dt;
     if (this.laserElapsed + 1e-9 >= interval - 1) this.enemies.forEach((enemy) => enemy.prepareLaser(this.player));
     if (this.laserElapsed + 1e-9 >= interval) {
       this.laserElapsed = Math.max(0, this.laserElapsed - interval);
       this.enemies.forEach((enemy) => this.enemyProjectiles.push(...enemy.fireLasers()));
+    }
+  }
+
+  updateMinionAttacks(dt) {
+    if (this.wave < EXTREME_WAVE) return;
+    const active = this.minions.filter((minion) => minion.alive);
+    if (!active.length) return;
+    const lastY = Math.max(...active.map((minion) => minion.y + minion.height / 2));
+    for (const minion of active) {
+      if (minion.y + minion.height >= this.player.hitbox.y) continue;
+      // La fila más baja se recalcula al morir o moverse los secuaces; los de atrás no disparan.
+      const isLastRow = lastY - (minion.y + minion.height / 2) <= Math.min(12, minion.height / 3);
+      const blade = minion.fireBlade(dt, isLastRow, this.player, this.random ?? Math.random);
+      if (blade) this.enemyProjectiles.push(blade);
     }
   }
 
@@ -567,6 +598,7 @@ export class Game {
     // Se resuelven primero los impactos: un jefe derrotado no puede invocar.
     this.updateSummons();
     this.updateLasers(dt);
+    this.updateMinionAttacks(dt);
     for (const laser of this.enemyProjectiles) {
       laser.update(dt, this.canvas.width, this.canvas.height);
       if (laser.active && Game.overlaps(laser, this.player.hitbox)) {

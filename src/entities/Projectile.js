@@ -1,6 +1,7 @@
 export class Projectile {
   constructor(centerX, y, sprite, options = {}) {
     this.team = options.team ?? 'player';
+    this.kind = options.kind ?? 'normal';
     this.speed = options.speed ?? 820;
     this.width = 12;
     this.height = 24;
@@ -27,6 +28,13 @@ export class Projectile {
 
   // La caja de colisión acompaña el giro del trazo, también en disparos diagonales.
   setBounds(centerX, centerY) {
+    if (this.kind === 'shuriken') {
+      // Caja cuadrada constante: la rotación del dibujo no cambia las colisiones.
+      this.width = this.height = 20;
+      this.x = centerX - 10;
+      this.y = centerY - 10;
+      return;
+    }
     const thickness = this.isMissile ? 36 : this.team === 'enemy' ? 10 : 12;
     const length = this.isMissile ? 72 : 24;
     this.width = Math.abs(Math.cos(this.angle)) * length + Math.abs(Math.sin(this.angle)) * thickness;
@@ -38,6 +46,13 @@ export class Projectile {
   static laser(x, y, target, speed = 210, spread = 0) {
     // Parte casi vertical y luego corrige poco a poco; evita apuntar con un giro instantáneo.
     return new Projectile(x, y, null, { team: 'enemy', target, speed, angle: Math.PI / 2 + spread });
+  }
+
+  static shuriken(x, y, player, speed = 230) {
+    const box = player.hitbox;
+    // Apunta una sola vez al dispararse; la cuchilla nunca persigue al cuy.
+    const angle = Math.atan2(box.y + box.height / 2 - y, box.x + box.width / 2 - x);
+    return new Projectile(x, y, null, { team: 'enemy', kind: 'shuriken', speed, angle });
   }
 
   // Nunca permite invertir la marcha ni quedarse volando horizontalmente.
@@ -76,6 +91,20 @@ export class Projectile {
   draw(ctx) {
     ctx.save();
     ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+    if (this.kind === 'shuriken') {
+      ctx.rotate(this.age * 12);
+      ctx.fillStyle = '#9bdde3';
+      ctx.fillRect(-2, -10, 4, 20);
+      ctx.fillRect(-10, -2, 20, 4);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = '#eaf9ff';
+      ctx.fillRect(-2, -7, 4, 14);
+      ctx.fillRect(-7, -2, 14, 4);
+      ctx.fillStyle = '#25363a';
+      ctx.fillRect(-2, -2, 4, 4);
+      ctx.restore();
+      return;
+    }
     ctx.rotate(this.angle + Math.PI / 2);
     if (this.isMissile) {
       // El mismo sprite de choclo se amplía; el fallback también escala.
