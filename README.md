@@ -9,6 +9,7 @@ El juego y la API del ranking se sirven desde el mismo proceso de Node.js (22 o 
 ```bash
 npm ci
 # Configura SUPABASE_URL, SUPABASE_SERVICE_KEY y GAME_SESSION_SECRET en el entorno local.
+npm run build
 npm start
 ```
 
@@ -18,12 +19,14 @@ Abre [http://localhost:3000](http://localhost:3000). La base de producción CuyI
 
 - `server.js`: Express + SDK oficial `@supabase/supabase-js`. Usa `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` solo en servidor; `.env` está ignorado por Git. Nunca coloques la clave en `src/`, HTML o assets.
 - SQL: UUID automático, nombre, puntaje BIGINT, oleada y fecha UTC. Índice por `score DESC, created_at ASC, id ASC`. RLS sin políticas y sin permisos para `anon`, `authenticated` ni `PUBLIC`; `service_role` solo recibe SELECT/INSERT en esta tabla. El permiso EXECUTE directo de esos roles sobre `public.rls_auto_enable()` también está revocado; su event trigger sigue activo como `postgres`.
-- `POST /api/game-session` emite un ticket de partida firmado por el servidor. Al terminar, `POST /api/leaderboard` recibe `{name,score,wave,runToken}`; valida firma, vencimiento, tiempo mínimo, límite superior y ticket único. Reintentar el mismo payload devuelve el puntaje previamente guardado; reutilizar el ticket con otro resultado se rechaza. `GET /api/leaderboard` devuelve el Top 10 con empates resueltos por fecha y UUID. El nombre admite hasta 30 caracteres; puntaje entero seguro y oleada 1–10000. `src/GameRules.js` comparte el balance y las cotas.
-- `src/api.js` solo usa fetch. `src/Leaderboard.js` muestra el formulario únicamente al terminar. El único campo es Nombre (hasta 30 caracteres); se puede escribir también el apellido dentro del mismo campo. Guardar abre un recuadro separado con el Top 10. Si falla el envío, `finally` vuelve a habilitar el campo y el botón para que se reintente.
+- `GET /api/start-session` emite un ticket firmado con HMAC-SHA256 por Node.js, con UUID y hora de inicio. El ticket caduca en seis horas y nunca incluye `GAME_SESSION_SECRET`. Al terminar, `POST /api/scores` recibe `{name,score,wave,runToken}`; valida firma, vencimiento, tiempo mínimo, límite superior y ticket único antes de insertar en Supabase. Reintentar el mismo payload devuelve el puntaje previamente guardado; reutilizar el ticket con otro resultado se rechaza. `GET /api/scores` devuelve el Top 10 con empates resueltos por fecha y UUID. El nombre admite hasta 30 caracteres; puntaje entero seguro y oleada 1–10000. `src/GameRules.js` comparte el balance y las cotas.
+- `POST /api/game-session` y `GET/POST /api/leaderboard` se conservan como alias para partidas abiertas con una versión anterior. Comparten los mismos límites de tráfico y validación que las rutas nuevas.
+- `src/api.js` solo usa rutas relativas de fetch (`/api/start-session`, `/api/scores`). `Game.js` solicita el ticket al iniciar una partida y lo conserva en memoria. No hay firmas ni claves de Supabase en el navegador. Si una ruta API devuelve HTML, el cliente señala que Express no está atendiendo esa ruta.
+- `src/Leaderboard.js` muestra el formulario únicamente al terminar. El único campo es Nombre (hasta 30 caracteres); se puede escribir también el apellido dentro del mismo campo. Guardar abre un recuadro separado con el Top 10. Si no puede confirmar el envío global, guarda el resultado en `localStorage` y muestra el Top 10 local, identificado como datos de ese dispositivo. Esos resultados no se envían automáticamente a Supabase. Si el almacenamiento está bloqueado, mantiene una copia temporal durante esa sesión de la página.
 - API: 60 lecturas, 20 solicitudes de sesión y 5 publicaciones por minuto por IP; cuerpo máximo 2 KB, tiempos de espera y errores sin detalles internos. `TRUST_PROXY_HOPS=0` local y `1` detrás del proxy de Render. El rate limiter admite `rateLimitStoreFactory` para inyectar un store Redis distinto por middleware; hoy usa memoria local y no comparte contadores entre réplicas.
 - Los tickets HMAC impiden inventar una sesión firmada y evitan repetir o cambiar un resultado ya guardado. El mínimo temporal es 15 segundos iniciales más 15 por oleada. El navegador todavía informa el resultado: un atacante puede esperar ese tiempo y fabricar datos dentro de las cotas. Esto **no certifica partidas para premios**. No pongas un secreto HMAC en el frontend: cualquier jugador podría extraerlo. Para competir por premios, ejecuta la simulación en servidor y valida una reproducción determinista de las entradas antes de aceptar puntajes.
 
-El servicio anterior de Render es un **Static Site** y no ejecuta Express. `render.yaml` prepara un NUEVO **Web Service** que sirve juego y API juntos: runtime Node 22, build `npm ci`, start `npm start`, health check `/api/health`. En el panel de Render configura:
+El despliegue monolítico usa un único **Web Service** en Render: runtime Node 22, plan Free, build `npm ci && npm run build`, start `npm start`, health check `/api/health`. En el panel de Render configura:
 
 | Variable | Valor |
 | --- | --- |
@@ -32,11 +35,11 @@ El servicio anterior de Render es un **Static Site** y no ejecuta Express. `rend
 | `GAME_SESSION_SECRET` | Secreto aleatorio único de al menos 32 bytes. Genera con `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` |
 | `TRUST_PROXY_HOPS` | `1` en Render para que el límite use la IP real detrás del proxy |
 
-En Render crea un **Web Service** conectado al repositorio y rama correctos, o usa Blueprint con `render.yaml`. Pon `npm ci` como **Build Command** y `npm start` como **Start Command**. Render inyecta `PORT`; no fijes uno manual. El servidor escucha en `0.0.0.0`. Las rutas `/`, `/src/`, `/assets/` y `/api/*` salen del mismo origen, así que no se necesita CORS ni un proxy de navegador adicional. Comprueba `https://<servicio>.onrender.com/api/health`. La URL de Static Site existente seguirá devolviendo 404 en `/api/*`; para conservarla hay que migrar el dominio al Web Service.
+En Render conecta el **Web Service** al repositorio y rama correctos, o usa Blueprint con `render.yaml`. Pon `npm ci && npm run build` como **Build Command** y `npm start` como **Start Command**. Render inyecta `PORT`; no fijes uno manual. El servidor escucha en `0.0.0.0`. Las rutas `/`, `/src/`, `/assets/` y `/api/*` salen del mismo origen, así que no se necesita CORS ni un proxy de navegador adicional. Comprueba `/api/health` y `/api/start-session`: deben responder HTTP 200 con JSON. Un Static Site no ejecuta Node.js; devolver HTML o 404 en esos endpoints indica que se está usando el servicio equivocado o que existe un rewrite externo.
 
 En Render configura `SUPABASE_URL` (URL HTTPS del proyecto), `SUPABASE_SERVICE_KEY` (clave secreta de servidor, nunca `anon`/publishable), `GAME_SESSION_SECRET` (32 bytes aleatorios o más) y `TRUST_PROXY_HOPS=1`. `NODE_VERSION=22` ya está en `render.yaml`; Render proporciona `PORT` automáticamente. Para desarrollo local, define esas variables en `.env`, pon `TRUST_PROXY_HOPS=0` y no subas `.env` a Git.
 
-El servidor solo expone `/`, `/index.html`, `/style.css`, `/src/` y `/assets/`. No sirve `.env`, SQL, archivos del servidor, tests ni `node_modules`.
+`npm run build` copia únicamente `index.html`, `style.css`, `src/` y `assets/` a `dist/`, sin empaquetar ni modificar los módulos ES6. Express sirve esa carpeta con `app.use(express.static(frontendRoot, { dotfiles: 'deny', index: 'index.html', redirect: false }))`. La ruta es absoluta y no depende del directorio desde el que se ejecute Node.js. La API se registra antes del middleware estático; las rutas desconocidas de `/api/*` devuelven un 404 JSON, nunca la página del juego. No se copian `.env`, SQL, archivos del servidor, tests ni `node_modules`.
 
 Verifica en Supabase, después de ejecutar la migración: RLS activo, cero filas en `pg_policies` para `public.leaderboard`, ningún SELECT/INSERT permitido a `anon` o `authenticated`. Ejecutar el SQL es un paso de configuración real, distinto de las pruebas locales con cliente simulado.
 
@@ -80,6 +83,8 @@ En móviles el mundo cambia a formato vertical. Si se gira el teléfono a horizo
 ├── server.js
 ├── package.json
 ├── render.yaml
+├── scripts/build-client.mjs
+├── dist/ (generado e ignorado por Git)
 ├── assets/
 └── src/
     ├── main.js

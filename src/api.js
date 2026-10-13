@@ -1,13 +1,18 @@
 // El cliente solo habla con nuestro proxy. No contiene SDK ni claves de Supabase.
+const SCORES_PATH = '/api/scores';
+const SESSION_PATH = '/api/start-session';
+
 async function request(options = {}) {
-  const { url, expectedStatuses, ...fetchOptions } = options;
+  const { url = SCORES_PATH, expectedStatuses, ...fetchOptions } = options;
   let response;
   try {
     const timeout = AbortSignal.timeout(12000);
     const signal = fetchOptions.signal && AbortSignal.any
       ? AbortSignal.any([fetchOptions.signal, timeout])
       : fetchOptions.signal ?? timeout;
-    response = await fetch(url ?? '/api/leaderboard', { ...fetchOptions, signal, cache: 'no-store' });
+    response = await fetch(url, { ...fetchOptions,
+      headers: { Accept: 'application/json', ...fetchOptions.headers },
+      signal, cache: 'no-store', credentials: 'same-origin' });
   } catch (cause) {
     const error = new Error(options.method === 'POST'
       ? 'No se pudo confirmar el envío. Consulta el ranking antes de reintentar.'
@@ -15,8 +20,15 @@ async function request(options = {}) {
     // Conserva el error de red/CORS real para que el log temporal del flujo de
     // sesión permita distinguirlo de un 404 o de una respuesta HTTP inválida.
     error.cause = cause;
-    error.endpoint = url ?? '/api/leaderboard';
+    error.endpoint = url;
     error.method = fetchOptions.method ?? 'GET';
+    throw error;
+  }
+  const contentType = response.headers?.get('content-type');
+  if (contentType && !contentType.toLowerCase().includes('application/json')) {
+    const error = new Error('La API respondió una página en lugar de JSON. Comprueba que Express atiende /api en el Web Service.');
+    error.status = response.status;
+    error.endpoint = url;
     throw error;
   }
   const data = await response.json().catch(() => null);
@@ -30,9 +42,11 @@ async function request(options = {}) {
   return data;
 }
 
-export async function startGameSession() {
-  const result = await request({ url: '/api/game-session', method: 'POST' });
-  if (typeof result.token !== 'string') throw new Error('No se pudo validar la partida.');
+export async function startGameSession({ signal } = {}) {
+  const result = await request({ url: SESSION_PATH, method: 'GET', expectedStatuses: [200], signal });
+  if (typeof result.token !== 'string' || !result.token || result.token.length > 1024) {
+    throw new Error('El servidor no entregó un ticket de partida válido.');
+  }
   return result.token;
 }
 

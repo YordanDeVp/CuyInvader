@@ -6,6 +6,7 @@ import {
   validateEntry, verifyGameTicket,
 } from '../server.js';
 import { Leaderboard, renderTopScores } from '../src/Leaderboard.js';
+import { startGameSession } from '../src/api.js';
 
 const valid = { name: ' José Muñoz ', score: 12345, wave: 8 };
 const TEST_SECRET = 'test-secret-for-game-ticket-tests-32-bytes';
@@ -52,18 +53,18 @@ async function fixture(t, db = database()) {
   t.after(() => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }));
   const url = 'http://127.0.0.1:' + server.address().port;
   const issueToken = async () => {
-    const response = await fetch(url + '/api/game-session', { method: 'POST' });
+    const response = await fetch(url + '/api/start-session');
     return (await response.json()).token;
   };
-  return { db, url, get: (route = '/api/leaderboard') => fetch(url + route), issueToken, advance: (ms) => { now += ms; },
-    post: async (body = valid, headers = { 'Content-Type': 'application/json' }) => {
+  return { db, url, get: (route = '/api/scores') => fetch(url + route), issueToken, advance: (ms) => { now += ms; },
+    post: async (body = valid, headers = { 'Content-Type': 'application/json' }, route = '/api/scores') => {
       let payload = body;
       if (typeof body !== 'string') {
         const token = body.runToken ?? await issueToken();
         payload = { ...body, runToken: token };
         now += Math.max(10_000, minimumRunDurationMs(Number(payload.wave) || 1));
       }
-      return fetch(url + '/api/leaderboard', {
+      return fetch(url + route, {
         method: 'POST', headers, body: typeof payload === 'string' ? payload : JSON.stringify(payload),
       });
     } };
@@ -91,6 +92,7 @@ test('firma tickets del servidor, expira tickets antiguos y limita tiempo y punt
   assert.equal(verifyGameTicket(token + 'x', TEST_SECRET, now + 1000), null);
   assert.equal(verifyGameTicket(token, 'another-secret-that-is-at-least-32-bytes', now + 1000), null);
   assert.equal(verifyGameTicket(token, TEST_SECRET, now + 6 * 60 * 60 * 1000 + 1), null);
+  assert.equal(verifyGameTicket(createGameTicket(TEST_SECRET, now + 1), TEST_SECRET, now), null);
   assert.equal(minimumRunDurationMs(8), 120_000);
   assert.ok(maximumPlausibleScore(8, 120_000) > maximumPlausibleScore(1, 0));
   assert.ok(maximumPlausibleScore(7, 60_000) >= maximumPlausibleScore(7, 0) + 20 * 4 * 15);
@@ -149,7 +151,7 @@ test('al presionar Guardar, el cliente envía nombre, puntaje y oleada y el serv
   });
 
   const db = database();
-  const { url, issueToken, advance } = await fixture(t, db);
+  const { url, advance } = await fixture(t, db);
   const nativeFetch = globalThis.fetch;
   const clientRequests = [];
   globalThis.fetch = async (input, options = {}) => {
@@ -158,7 +160,7 @@ test('al presionar Guardar, el cliente envía nombre, puntaje y oleada y el serv
     return nativeFetch(target, options);
   };
 
-  const token = await issueToken();
+  const token = await startGameSession();
   advance(minimumRunDurationMs(3));
   const board = new Leaderboard();
   board.setRunToken(token);
@@ -178,9 +180,9 @@ test('al presionar Guardar, el cliente envía nombre, puntaje y oleada y el serv
   );
   assert.match(inserted.run_id, /^[0-9a-f-]{36}$/i);
   assert.deepEqual(clientRequests, [
-    { path: '/api/game-session', method: 'POST' },
-    { path: '/api/leaderboard', method: 'POST' },
-    { path: '/api/leaderboard', method: 'GET' },
+    { path: '/api/start-session', method: 'GET' },
+    { path: '/api/scores', method: 'POST' },
+    { path: '/api/scores', method: 'GET' },
   ]);
   assert.equal(board.sent, true);
   assert.equal(board.rankingCard.hidden, false);
@@ -201,7 +203,7 @@ test('requiere ticket firmado y hace idempotente el mismo envío, rechazando cam
 
 test('rechaza partidas demasiado rápidas y puntajes por encima de su cota', async (t) => {
   const { issueToken, url, advance } = await fixture(t);
-  const send = (token, score, wave) => fetch(url + '/api/leaderboard', {
+  const send = (token, score, wave) => fetch(url + '/api/scores', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...valid, score, wave, runToken: token }),
   });
@@ -228,11 +230,14 @@ test('rechaza entrada inválida, JSON roto, formularios y cuerpos excesivos ante
 test('no sirve secretos, código de servidor ni SQL; el juego sí está disponible', async (t) => {
   const { get } = await fixture(t);
   for (const route of ['/.env', '/.env.example', '/server.js', '/package.json', '/.git/config', '/node_modules/express/package.json',
-    '/supabase/migrations/202610120001_leaderboard.sql', '/src/%2e%2e/server.js']) {
+    '/supabase/migrations/202610120001_leaderboard.sql', '/src/%2e%2e/server.js', '/scripts/build-client.mjs',
+    '/README.md', '/tests/leaderboard.test.mjs', '/render.yaml', '/assets/..%2Fserver.js']) {
     assert.equal((await get(route)).status, 404, route);
   }
   assert.equal((await get('/')).status, 200);
   assert.equal((await get('/src/api.js')).status, 200);
+  assert.equal((await get('/style.css')).status, 200);
+  assert.equal((await get('/assets/sprites-andinos.jpg')).status, 200);
   assert.equal((await get('/api/health')).status, 200);
 });
 
@@ -248,11 +253,53 @@ test('la BD caída y excepciones no exponen mensajes internos', async (t) => {
 
 test('limita escrituras a cinco por minuto e incluye Retry-After', async (t) => {
   const { post, db } = await fixture(t);
-  for (let i = 0; i < 5; i++) assert.equal((await post()).status, 201);
+  for (let i = 0; i < 4; i++) assert.equal((await post()).status, 201);
+  assert.equal((await post(valid, { 'Content-Type': 'application/json' }, '/api/leaderboard')).status, 201);
   const response = await post();
   assert.equal(response.status, 429);
   assert.ok(Number(response.headers.get('retry-after')) > 0);
   assert.equal(db.calls.filter(([name]) => name === 'insert').length, 5);
+});
+
+test('emite la sesión por GET sin cachear ni exponer el secreto; conserva las rutas anteriores', async (t) => {
+  const { get, post, url } = await fixture(t);
+  const response = await get('/api/start-session');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const session = await response.json();
+  assert.deepEqual(Object.keys(session), ['token']);
+  assert.ok(verifyGameTicket(session.token, TEST_SECRET, Date.UTC(2026, 9, 12)));
+  assert.ok(!JSON.stringify(session).includes(TEST_SECRET));
+  const legacy = await fetch(url + '/api/game-session', { method: 'POST' });
+  assert.equal(legacy.status, 201);
+  assert.equal((await post(valid, { 'Content-Type': 'application/json' }, '/api/leaderboard')).status, 201);
+  assert.equal((await get('/api/leaderboard')).status, 200);
+});
+
+test('las rutas API inexistentes y los métodos incorrectos responden JSON, nunca index.html', async (t) => {
+  const { get, url } = await fixture(t);
+  const missing = await get('/api/not-a-route');
+  assert.equal(missing.status, 404);
+  assert.match(missing.headers.get('content-type'), /application\/json/);
+  assert.deepEqual(await missing.json(), { error: 'Ruta no encontrada.' });
+  for (const [route, method, allow] of [['/api/start-session', 'POST', 'GET'], ['/api/scores', 'DELETE', 'GET, POST']]) {
+    const response = await fetch(url + route, { method });
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get('allow'), allow);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+  }
+});
+
+test('el cliente detecta un Static Site que devuelve HTML en lugar del ticket JSON', async (t) => {
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, '/api/start-session');
+    assert.equal(options.method, 'GET');
+    assert.equal(options.credentials, 'same-origin');
+    return { status: 200, headers: { get: () => 'text/html; charset=utf-8' } };
+  };
+  await assert.rejects(startGameSession(), /La API respondió una página en lugar de JSON/);
 });
 
 test('reset cancela la consulta pendiente y una respuesta tardía no modifica el ranking', async (t) => {

@@ -4,11 +4,13 @@ import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { createClient } from '@supabase/supabase-js';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ENDGAME_WAVE, ENDGAME_BOSSES, SUMMON_INTERVAL, MINIONS_PER_SUMMON, MINION_POINTS, guardianCountForWave } from './src/GameRules.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const frontendRoot = path.join(root, 'dist');
 const columns = 'id, name, score, wave, created_at';
 const RUN_TICKET_TTL_MS = 6 * 60 * 60 * 1000;
 // Barrera temporal básica contra publicaciones instantáneas. No certifica una
@@ -37,7 +39,8 @@ export function verifyGameTicket(token, secret, now = Date.now()) {
   try {
     const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (claims.v !== 1 || !/^[0-9a-f-]{36}$/i.test(claims.runId) || !Number.isSafeInteger(claims.issuedAt)) return null;
-    if (claims.issuedAt > now + 30_000 || now - claims.issuedAt > RUN_TICKET_TTL_MS) return null;
+    // Ambos tiempos proceden de Node.js; no aceptamos tickets del futuro.
+    if (claims.issuedAt > now || now - claims.issuedAt > RUN_TICKET_TTL_MS) return null;
     return claims;
   } catch {
     return null;
@@ -103,11 +106,16 @@ export function createApp(db, { trustProxy = 0, gameSessionSecret, now = Date.no
   });
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
-  app.post('/api/game-session', limiter(20, 'game-session'), (_req, res) => {
-    return res.status(201).json({ token: createGameTicket(gameSessionSecret, now()) });
-  });
+  const sessionLimiter = limiter(20, 'game-session');
+  const issueSession = (req, res) => res.status(req.method === 'POST' ? 201 : 200)
+    .json({ token: createGameTicket(gameSessionSecret, now()) });
+  // El cliente recibe un ticket temporal, nunca el secreto que lo firma.
+  app.get('/api/start-session', sessionLimiter, issueSession);
+  // Compatibilidad con clientes anteriores que aún están abiertos o en caché.
+  app.post('/api/game-session', sessionLimiter, issueSession);
 
-  app.get('/api/leaderboard', limiter(60, 'leaderboard-read'), async (_req, res) => {
+  const scoreRoutes = ['/api/scores', '/api/leaderboard'];
+  app.get(scoreRoutes, limiter(60, 'leaderboard-read'), async (_req, res) => {
     try {
       const { data, error } = await db.from('leaderboard').select(columns)
         .order('score', { ascending: false }).order('created_at', { ascending: true })
@@ -119,7 +127,7 @@ export function createApp(db, { trustProxy = 0, gameSessionSecret, now = Date.no
     }
   });
 
-  app.post('/api/leaderboard', limiter(5, 'leaderboard-write'), (req, res, next) => {
+  app.post(scoreRoutes, limiter(5, 'leaderboard-write'), (req, res, next) => {
     if (!req.is('application/json')) return res.status(415).json({ error: 'Envía application/json.' });
     return next();
   }, express.json({ limit: '2kb', strict: true }), async (req, res) => {
@@ -155,15 +163,15 @@ export function createApp(db, { trustProxy = 0, gameSessionSecret, now = Date.no
       return res.status(503).json({ error: 'No se pudo confirmar el guardado. Consulta el ranking antes de reintentar.' });
     }
   });
-  app.all('/api/leaderboard', (_req, res) => res.set('Allow', 'GET, POST').status(405).json({ error: 'Método no permitido.' }));
+  app.all(scoreRoutes, (_req, res) => res.set('Allow', 'GET, POST').status(405).json({ error: 'Método no permitido.' }));
+  app.all('/api/start-session', (_req, res) => res.set('Allow', 'GET').status(405).json({ error: 'Método no permitido.' }));
+  app.all('/api/game-session', (_req, res) => res.set('Allow', 'POST').status(405).json({ error: 'Método no permitido.' }));
+  // La API responde JSON incluso si la ruta no existe: nunca cae en el HTML.
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
 
-  // Lista explícita: nunca servir la raíz completa (contiene .env y server.js).
-  app.get(['/', '/index.html'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
-  app.get('/style.css', (_req, res) => res.sendFile(path.join(root, 'style.css')));
-  for (const folder of ['src', 'assets']) {
-    app.use('/' + folder, express.static(path.join(root, folder), { dotfiles: 'deny', index: false }));
-  }
+  // npm run build copia solo index.html, style.css, src/ y assets/ a dist/.
+  // La raíz del repositorio contiene secretos y código privado: no es pública.
+  app.use(express.static(frontendRoot, { dotfiles: 'deny', index: 'index.html', redirect: false }));
   app.use((_req, res) => res.status(404).type('text').send('No encontrado.'));
   app.use((error, _req, res, _next) => {
     const status = error.type === 'entity.too.large' ? 413 : error.type === 'entity.parse.failed' ? 400 : 500;
@@ -175,6 +183,9 @@ export function createApp(db, { trustProxy = 0, gameSessionSecret, now = Date.no
 
 export function startServer() {
   dotenv.config({ path: path.join(root, '.env'), quiet: true });
+  if (!existsSync(path.join(frontendRoot, 'index.html'))) {
+    throw new Error('No se encontró dist/index.html. Ejecuta npm run build antes de npm start.');
+  }
   const { SUPABASE_URL, SUPABASE_SERVICE_KEY, GAME_SESSION_SECRET } = process.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) throw new Error('Configura SUPABASE_URL y SUPABASE_SERVICE_KEY en el servidor.');
   if (!GAME_SESSION_SECRET || Buffer.byteLength(GAME_SESSION_SECRET, 'utf8') < 32) {

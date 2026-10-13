@@ -1,10 +1,10 @@
-# Crear un NUEVO Web Service; el Static Site actual no ejecuta Node.js.
+# Monolito: Express sirve el cliente de dist/ y todas las rutas /api/.
 services:
   - type: web
     name: cuyinvader-web
     runtime: node
     plan: free
-    buildCommand: npm ci
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
