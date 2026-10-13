@@ -4,7 +4,7 @@ Un arcade de supervivencia inspirado en *Space Invaders*, con sabor andino. Mane
 
 ## Jugar
 
-`server.js` y `render.yaml` se conservan localmente y están excluidos de Git. Un clon nuevo necesita una copia privada de `server.js` para arrancar el backend y ejecutar `npm test`; `npm run test:public` comprueba el cliente sin ese archivo. En Render, el servidor se suministra como Secret File llamado `server.js`, disponible en la raíz del servicio. `npm start` conserva esa ruta para resolver los imports del proyecto. Estos archivos siguen presentes en commits anteriores.
+`server.js`, `render.yaml`, `docs/` y `tests/` se conservan localmente y están excluidos de Git. Un clon nuevo necesita una copia privada de `server.js` para arrancar el backend y las copias locales de `tests/` para ejecutar las pruebas. En Render, el servidor se suministra como Secret File llamado `server.js`, disponible en la raíz del servicio. `npm start` conserva esa ruta para resolver los imports del proyecto. La retirada no borra estos archivos del historial de Git.
 
 El juego y la API del ranking se sirven desde el mismo proceso de Node.js (22 o superior):
 
@@ -122,7 +122,7 @@ Cliente: JavaScript puro, módulos ES6 y HTML5 Canvas, sin compilación. Servido
 
 ## Pruebas de jugabilidad
 
-Ejecuta `npm test` con la copia privada de `server.js`. Las pruebas simulan la física real en móvil y PC, el audio y la API de ranking con un cliente Supabase simulado (no necesitan claves ni escriben en producción). Incluyen firma, vencimiento, reproducción real de partidas de móvil y PC, puntajes manipulados, cambios de tamaño, confirmación tras una respuesta perdida, orden/límite del Top 10, errores, rate limiting por ticket y bloqueo de rutas privadas. La CI de GitHub ejecuta `npm run test:public`: build, audio, jugabilidad y reintentos del cliente; no verifica la API privada.
+Ejecuta `npm test` con las copias locales de `server.js` y `tests/`. Las pruebas simulan la física real en móvil y PC, el audio y la API de ranking con un cliente Supabase simulado (no necesitan claves ni escriben en producción). Incluyen firma, vencimiento, reproducción real de partidas de móvil y PC, puntajes manipulados, cambios de tamaño, confirmación tras una respuesta perdida, orden/límite del Top 10, errores, rate limiting por ticket y bloqueo de rutas privadas. `npm run test:public` también requiere los archivos locales de tests. La CI de GitHub ejecuta únicamente `npm run build`; no ejecuta las pruebas de jugabilidad ni de API.
 
 ## Audio y tarjetas de mejoras
 
@@ -135,4 +135,4 @@ Las pistas WAV originales incluidas se sintetizan con `node scripts/generate-aud
 
 Las tarjetas usan exactamente los PNG suministrados: `assets/upgrade-speed.png` y `assets/upgrade-damage.png`, dentro de botones con `<img>` y `object-fit: contain`. El área completa es clicable y se conserva el modal compacto. Las mejoras siguen siendo +20 % de movimiento o +1 de daño por choclo; el texto artístico de los PNG menciona disparos rápidos y bombas, pero el ataque 3×3 sigue siendo el poder del misil, no una mejora permanente.
 
-La configuración y el procedimiento de rollback están en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). La corrección se desarrolló en `codex/server-session-monolith`; el Blueprint de producción apunta a `main` y conserva el plan Free. Las claves, los scripts SQL y los informes locales de auditoría quedan fuera de la publicación.
+La guía de configuración y rollback se conserva únicamente en la copia local de `docs/DEPLOYMENT.md`. Render usa el plan Free y despliegues manuales desde `main`, con `server.js` suministrado como archivo privado del servicio. Las claves, los scripts SQL, las pruebas, la documentación de despliegue y los informes locales de auditoría quedan fuera de la publicación.

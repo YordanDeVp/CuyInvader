@@ -1,4 +1,4 @@
-name: Verificar cliente público
+name: Preparar cliente público
 on:
   push:
   pull_request:
@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   test:
-    name: Cliente (backend privado fuera de Git)
+    name: Build del cliente (pruebas locales fuera de Git)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -16,5 +16,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # La suite completa de API requiere la copia privada de server.js.
-      - run: npm run test:public
+      # docs/, tests/ y server.js se conservan solo localmente.
+      # Este job comprueba el build; no ejecuta pruebas automatizadas.
+      - run: npm run build
