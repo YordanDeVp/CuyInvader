@@ -266,6 +266,7 @@ export class Game {
 
   spawnWave() {
     this.wave += 1;
+    this.lastImpostorSummonWasSimultaneous = false;
     this.enemySpeed = Enemy.speedForWave(this.wave);
     this.layout = Enemy.layout(this.wave, this.canvas.width, this.canvas.height, this.player.y);
     this.formation = { x: this.canvas.width / 2, y: this.layout.startY, direction: this.wave % 2 ? 1 : -1, halfWidth: this.layout.span / 2, descentElapsed: 0 };
@@ -466,8 +467,9 @@ export class Game {
   }
 
   updateSummons() {
+    if (this.wave >= EXTREME_WAVE) { this.updateExtremeSummons(); return; }
     for (const boss of this.enemies) {
-      const minionCount = minionsPerSummonForWave(this.wave);
+      const minionCount = minionsPerSummonForWave(this.wave, boss.isImpostor);
       let spawnIndices;
       if (boss.isImpostor) {
         // Un reloj aleatorio propio por impostor; usa la semilla del replay.
@@ -478,19 +480,82 @@ export class Game {
         if (!boss.consumeSummon()) continue;
         spawnIndices = Array.from({ length: minionCount }, (_, index) => index);
       }
-      for (const index of spawnIndices) {
-        const minion = new Minion(0, boss.y + boss.height + 18, this.assets.moche, this.wave, this.layout);
-        const center = boss.x + boss.width / 2 + (index - (minionCount - 1) / 2) * (minion.width + 10);
-        minion.x = Math.max(8, Math.min(this.canvas.width - minion.width - 8, center - minion.width / 2));
-        // Nacen delante del jefe, con un margen para que el cuy pueda reaccionar.
-        minion.y = Math.min(minion.y, this.player.hitbox.y - minion.height - 90);
-        this.minions.push(minion);
-      }
-      this.bossNotice = spawnIndices.length === 1 ? '¡EL IMPOSTOR INVOCA UN SECUAZ!' :
-        '¡EL JEFE INVOCA ' + minionCount + ' SECUACES!';
-      this.revealTime = 3;
-      this.announce(this.bossNotice);
+      this.spawnBossMinions(boss, spawnIndices, minionCount);
     }
+  }
+
+  updateExtremeSummons() {
+    const random = this.random ?? Math.random;
+    const bosses = this.enemies.filter(boss => boss.alive && boss.isBoss);
+    const finals = bosses.filter(boss => !boss.isImpostor);
+    const impostors = bosses.filter(boss => boss.isImpostor);
+    bosses.forEach(boss => boss.prepareIndividualSummon(random));
+    this.spaceFinalSummons(finals);
+    this.spaceImpostorSummons(impostors);
+    const readyFinals = finals.filter(boss => boss.individualSummonReady)
+      .sort((a, b) => (b.summonElapsed - b.individualSummonDelay) - (a.summonElapsed - a.individualSummonDelay));
+    // Nunca más de dos jefes normales en el mismo evento de generación.
+    const selectedFinals = readyFinals.slice(0, 2);
+    readyFinals.slice(2).forEach(boss => { boss.summonDeferred = 0.15; });
+    const readyImpostors = impostors.filter(boss => boss.individualSummonReady);
+    const simultaneous = readyImpostors.length > 1;
+    let selectedImpostors = readyImpostors;
+    if (simultaneous && this.lastImpostorSummonWasSimultaneous) {
+      // Defensa ante un frame largo: separa la segunda aparición, sin acumular tandas.
+      selectedImpostors = readyImpostors.slice(0, 1);
+      readyImpostors.slice(1).forEach(boss => { boss.summonDeferred = 0.15; });
+    }
+    if (selectedImpostors.length) this.lastImpostorSummonWasSimultaneous = selectedImpostors.length > 1;
+    for (const boss of [...selectedFinals, ...selectedImpostors]) {
+      const index = boss.consumeIndividualSummon(random);
+      if (index !== null) this.spawnBossMinions(boss, [index], minionsPerSummonForWave(this.wave, boss.isImpostor));
+    }
+    // Planificar el desfase inmediatamente mantiene los intervalos dentro de sus rangos.
+    this.spaceFinalSummons(finals);
+    this.spaceImpostorSummons(impostors);
+  }
+
+  spaceFinalSummons(finals) {
+    for (const boss of finals) {
+      if (!boss.summonNeedsSpacing) continue;
+      const others = finals.filter(other => other !== boss && !other.summonNeedsSpacing);
+      const initial = boss.individualSummonDelay;
+      // Si tres relojes coinciden, mueve el último dentro de la ventana de 2–4 s.
+      const candidates = [initial];
+      for (let step = 1; step <= 8; step++) candidates.push(initial + step * 0.15, initial - step * 0.15);
+      const delay = candidates.find(candidate => candidate >= 2 && candidate <= 4 &&
+        others.filter(other => Math.abs(candidate - boss.summonElapsed -
+          (other.individualSummonDelay - other.summonElapsed)) < 0.05).length < 2);
+      if (delay !== undefined) boss.individualSummonDelay = delay;
+      boss.summonNeedsSpacing = false;
+    }
+  }
+
+  spaceImpostorSummons(impostors) {
+    if (!this.lastImpostorSummonWasSimultaneous || impostors.length < 2) return;
+    const [first, second] = impostors;
+    const remaining = first.individualSummonDelay - first.summonElapsed;
+    const otherRemaining = second.individualSummonDelay - second.summonElapsed;
+    if (Math.abs(remaining - otherRemaining) >= 0.15 - 1e-9) return;
+    // Alterna el sentido del desfase según el espacio disponible, sin exceder 3 s.
+    const delay = [second.summonElapsed + remaining + 0.15, second.summonElapsed + remaining - 0.15]
+      .find(candidate => candidate >= 2 && candidate <= 3 && candidate > second.summonElapsed);
+    if (delay !== undefined) second.individualSummonDelay = delay;
+  }
+
+  spawnBossMinions(boss, spawnIndices, minionCount) {
+    for (const index of spawnIndices) {
+      const minion = new Minion(0, boss.y + boss.height + 18, this.assets.moche, this.wave, this.layout);
+      const center = boss.x + boss.width / 2 + (index - (minionCount - 1) / 2) * (minion.width + 10);
+      minion.x = Math.max(8, Math.min(this.canvas.width - minion.width - 8, center - minion.width / 2));
+      // Nacen delante del jefe, con un margen para que el cuy pueda reaccionar.
+      minion.y = Math.min(minion.y, this.player.hitbox.y - minion.height - 90);
+      this.minions.push(minion);
+    }
+    this.bossNotice = spawnIndices.length === 1 ? (boss.isImpostor ? '¡EL IMPOSTOR INVOCA UN SECUAZ!' : '¡EL JEFE INVOCA UN SECUAZ!') :
+      '¡EL JEFE INVOCA ' + minionCount + ' SECUACES!';
+    this.revealTime = 3;
+    this.announce(this.bossNotice);
   }
 
   hitPlayer() {

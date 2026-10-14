@@ -26,8 +26,8 @@ export function bossHealthForWave(wave) {
   return baseHealth * (wave >= EXTREME_WAVE ? 3 : 1);
 }
 
-export function minionsPerSummonForWave(wave) {
-  return wave >= EXTREME_WAVE ? 4 : 2;
+export function minionsPerSummonForWave(wave, impostor = false) {
+  return wave >= EXTREME_WAVE && impostor ? 4 : 2;
 }
 
 export function minionHealthMultiplierForWave(wave) {

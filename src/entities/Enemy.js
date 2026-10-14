@@ -1,7 +1,7 @@
 import { Projectile } from './Projectile.js';
 import { ENDGAME_WAVE, SUMMON_INTERVAL, MINION_POINTS, guardianCountForWave,
   bossHealthForWave, minionHealthMultiplierForWave, MAX_SPEED_MULTIPLIER,
-  LASER_BURST_DELAY, EXTREME_WAVE } from '../GameRules.js';
+  LASER_BURST_DELAY, EXTREME_WAVE, minionsPerSummonForWave } from '../GameRules.js';
 
 const DESCENT_INTERVAL = 3;
 const MAX_IMPOSTOR_SUMMON_DELAY = 7;
@@ -16,6 +16,10 @@ export class Enemy {
     this.summonElapsed = 0;
     this.impostorSummonDelay = null;
     this.impostorSummonIndex = 0;
+    this.individualSummonDelay = null;
+    this.individualSummonIndex = 0;
+    this.summonDeferred = 0;
+    this.summonNeedsSpacing = false;
     this.sprite = sprite;
     this.index = index;
     this.alive = true;
@@ -159,6 +163,7 @@ export class Enemy {
     this.flash = Math.max(0, this.flash - dt);
     this.revealTime = Math.max(0, this.revealTime - dt);
     if (this.alive && this.isBoss && this.wave >= ENDGAME_WAVE) this.summonElapsed += dt;
+    this.summonDeferred = Math.max(0, this.summonDeferred - dt);
   }
 
   // Desde la oleada 5 cada jefe conserva su reloj de invocación independiente.
@@ -183,6 +188,29 @@ export class Enemy {
     // No recupera retrasos con múltiples spawns: cada aparición empieza un reloj nuevo.
     this.summonElapsed = 0;
     this.impostorSummonDelay = nextDelay();
+    return index;
+  }
+
+  prepareIndividualSummon(random) {
+    if (!this.alive || !this.isBoss || this.wave < EXTREME_WAVE || this.individualSummonDelay !== null) return;
+    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 1 : 2);
+    this.summonNeedsSpacing = true;
+  }
+
+  get individualSummonReady() {
+    return this.alive && this.isBoss && this.wave >= EXTREME_WAVE &&
+      this.individualSummonDelay !== null && this.summonDeferred <= 1e-9 &&
+      this.summonElapsed + 1e-9 >= this.individualSummonDelay;
+  }
+
+  consumeIndividualSummon(random) {
+    if (!this.individualSummonReady) return null;
+    const count = minionsPerSummonForWave(this.wave, this.isImpostor);
+    const index = this.individualSummonIndex;
+    this.individualSummonIndex = (index + 1) % count;
+    this.summonElapsed = 0;
+    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 1 : 2);
+    this.summonNeedsSpacing = true;
     return index;
   }
 
