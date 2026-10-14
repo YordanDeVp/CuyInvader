@@ -193,7 +193,7 @@ export class Enemy {
 
   prepareIndividualSummon(random) {
     if (!this.alive || !this.isBoss || this.wave < EXTREME_WAVE || this.individualSummonDelay !== null) return;
-    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 1 : 2);
+    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 3 : 4);
     this.summonNeedsSpacing = true;
   }
 
@@ -209,7 +209,7 @@ export class Enemy {
     const index = this.individualSummonIndex;
     this.individualSummonIndex = (index + 1) % count;
     this.summonElapsed = 0;
-    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 1 : 2);
+    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 3 : 4);
     this.summonNeedsSpacing = true;
     return index;
   }

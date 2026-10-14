@@ -1,5 +1,5 @@
 // Contrato compartido. Incrementar la versión cuando cambie la física o el balance.
-export const RULES_VERSION = '2026-10-13-wave10-summon-coordination';
+export const RULES_VERSION = '2026-10-14-summon-exclusive-impostors';
 export const SIMULATION_STEP = 1 / 120;
 export const MAX_RUN_STEPS = 120 * 60 * 60;
 export const MAX_RUN_EVENTS = 20000;
