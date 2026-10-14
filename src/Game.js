@@ -4,14 +4,20 @@ import { Leaderboard } from './Leaderboard.js';
 import { startGameSession } from './api.js';
 import { RunRecorder, seededRandom, sessionParameters } from './RunReplay.js';
 import { laserIntervalForWave, minionsPerSummonForWave, impostorCountForWave,
-  LASER_BURST_WAVE, EXTREME_WAVE } from './GameRules.js';
+  LASER_BURST_WAVE, EXTREME_WAVE, ENDGAME_WAVE } from './GameRules.js';
 import { Player } from './entities/Player.js';
 import { Enemy, Minion } from './entities/Enemy.js';
 
 const FORMATIONS = ['grid', 'triangle', 'crescent'];
 const NAMES = { grid: 'BLOQUE', triangle: 'TRIÁNGULO', crescent: 'SEMILUNA' };
 const FORMATION_INTERVAL = 7;
-const IMPOSTOR_SUMMON_GAP = 0.15;
+const SUMMON_MIN_GAP = 0.15;
+const SUMMON_MAX_GAP = 0.3;
+const NOTICE_DURATION = 1.5;
+const NOTICE_GAP = 0.5;
+const IMPOSTOR_LASER_MIN_GAP = 0.25;
+const IMPOSTOR_LASER_MAX_GAP = 0.65;
+const IMPOSTOR_LASER_JITTER = 0.6;
 
 export const GameState = Object.freeze({ READY: 'ready', PLAYING: 'playing', PAUSED: 'paused', GAME_OVER: 'over', UPGRADE_MENU: 'upgrade_menu' });
 
@@ -267,7 +273,9 @@ export class Game {
 
   spawnWave() {
     this.wave += 1;
-    this.impostorSummonCooldown = 0;
+    this.summonCooldown = 0;
+    this.impostorLaserCooldown = 0;
+    this.impostorLaserOwner = null;
     this.enemySpeed = Enemy.speedForWave(this.wave);
     this.layout = Enemy.layout(this.wave, this.canvas.width, this.canvas.height, this.player.y);
     this.formation = { x: this.canvas.width / 2, y: this.layout.startY, direction: this.wave % 2 ? 1 : -1, halfWidth: this.layout.span / 2, descentElapsed: 0 };
@@ -288,6 +296,8 @@ export class Game {
     this.enemyProjectiles = [];
     this.minions = [];
     this.revealTime = 0;
+    this.noticeCooldown = 0;
+    this.bossNotice = '';
     this.syncUI();
     this.announce('Oleada ' + this.wave + '. ' + this.layout.count + ' tropas y ' + this.layout.bosses + ' guardianes.');
   }
@@ -304,6 +314,25 @@ export class Game {
   }
 
   announce(message) { this.ui.announcement.textContent = message; }
+
+  showBossNotice(message) {
+    // Nuevas invocaciones no prolongan un aviso que ya está visible.
+    if (this.revealTime > 0) { this.bossNotice = message; return; }
+    if (this.noticeCooldown > 0) return;
+    this.bossNotice = message;
+    this.revealTime = NOTICE_DURATION;
+  }
+
+  updateBossNotice(dt) {
+    this.noticeCooldown = Math.max(0, this.noticeCooldown - dt);
+    if (this.revealTime <= 0) return;
+    this.revealTime = Math.max(0, this.revealTime - dt);
+    if (this.revealTime <= 1e-9) {
+      this.revealTime = 0;
+      this.bossNotice = '';
+      this.noticeCooldown = NOTICE_GAP;
+    }
+  }
 
   handleAction(code) {
     if (this.orientationBlocked) return;
@@ -441,16 +470,53 @@ export class Game {
   }
 
   updateLasers(dt) {
-    if (!this.enemies.some((enemy) => enemy.isBoss)) return;
+    const bosses = this.enemies.filter(enemy => enemy.alive && enemy.isBoss);
+    if (!bosses.length) return;
+    const asynchronous = this.wave >= LASER_BURST_WAVE;
+    const regular = bosses.filter(enemy => !asynchronous || !enemy.isImpostor);
     // Procesar antes de la salva evita consumir el retraso en el frame inicial.
-    this.enemies.forEach((enemy) => this.enemyProjectiles.push(...enemy.updateLaserBurst(dt)));
+    regular.forEach(enemy => this.enemyProjectiles.push(...enemy.updateLaserBurst(dt)));
     const interval = laserIntervalForWave(this.wave);
     this.laserElapsed += dt;
-    if (this.laserElapsed + 1e-9 >= interval - 1) this.enemies.forEach((enemy) => enemy.prepareLaser(this.player));
+    if (this.laserElapsed + 1e-9 >= interval - 1) regular.forEach(enemy => enemy.prepareLaser(this.player));
     if (this.laserElapsed + 1e-9 >= interval) {
       this.laserElapsed = Math.max(0, this.laserElapsed - interval);
-      this.enemies.forEach((enemy) => this.enemyProjectiles.push(...enemy.fireLasers()));
+      regular.forEach(enemy => this.enemyProjectiles.push(...enemy.fireLasers()));
     }
+    if (asynchronous) this.updateImpostorLasers(dt, bosses.filter(enemy => enemy.isImpostor));
+  }
+
+  updateImpostorLasers(dt, impostors) {
+    const random = this.random ?? Math.random;
+    const interval = laserIntervalForWave(this.wave);
+    this.impostorLaserCooldown = Math.max(0, this.impostorLaserCooldown - dt);
+    for (const boss of impostors) {
+      boss.impostorLaserDelay ??= interval + random() * IMPOSTOR_LASER_JITTER;
+      boss.impostorLaserElapsed += dt;
+      if (boss.impostorLaserElapsed + 1e-9 >= boss.impostorLaserDelay - 1) boss.prepareLaser(this.player);
+    }
+    if (this.impostorLaserOwner) {
+      const owner = this.impostorLaserOwner;
+      this.enemyProjectiles.push(...owner.updateLaserBurst(dt));
+      if (!owner.pendingLaser || !impostors.includes(owner)) {
+        // El margen comienza tras el último láser, no tras el primero de la ráfaga.
+        this.impostorLaserOwner = null;
+        this.impostorLaserCooldown = IMPOSTOR_LASER_MIN_GAP + random() * (IMPOSTOR_LASER_MAX_GAP - IMPOSTOR_LASER_MIN_GAP);
+      }
+    }
+    if (this.impostorLaserOwner || this.impostorLaserCooldown > 1e-9) return;
+    const ready = impostors.filter(boss => boss.revealTime === 0 && boss.aim &&
+      boss.impostorLaserElapsed + 1e-9 >= boss.impostorLaserDelay)
+      .sort((a, b) => (b.impostorLaserElapsed - b.impostorLaserDelay) - (a.impostorLaserElapsed - a.impostorLaserDelay));
+    const boss = ready[0];
+    if (!boss) return;
+    const lasers = boss.fireLasers();
+    if (!lasers.length) return;
+    this.enemyProjectiles.push(...lasers);
+    boss.impostorLaserElapsed = 0;
+    boss.impostorLaserDelay = interval + random() * IMPOSTOR_LASER_JITTER;
+    if (boss.pendingLaser) this.impostorLaserOwner = boss;
+    else this.impostorLaserCooldown = IMPOSTOR_LASER_MIN_GAP + random() * (IMPOSTOR_LASER_MAX_GAP - IMPOSTOR_LASER_MIN_GAP);
   }
 
   updateMinionAttacks(dt) {
@@ -468,89 +534,41 @@ export class Game {
   }
 
   updateSummons(dt = 0) {
-    if (this.wave >= EXTREME_WAVE) { this.updateExtremeSummons(dt); return; }
-    for (const boss of this.enemies) {
-      const minionCount = minionsPerSummonForWave(this.wave, boss.isImpostor);
-      let spawnIndices;
-      if (boss.isImpostor) {
-        // Un reloj aleatorio propio por impostor; usa la semilla del replay.
-        const index = boss.consumeImpostorSummon(minionCount, this.random ?? Math.random);
-        if (index === null) continue;
-        spawnIndices = [index];
-      } else {
-        if (!boss.consumeSummon()) continue;
-        spawnIndices = Array.from({ length: minionCount }, (_, index) => index);
-      }
-      this.spawnBossMinions(boss, spawnIndices, minionCount);
-    }
-  }
-
-  updateExtremeSummons(dt) {
-    this.impostorSummonCooldown = Math.max(0, this.impostorSummonCooldown - dt);
+    if (this.wave < ENDGAME_WAVE) return;
+    this.summonCooldown = Math.max(0, this.summonCooldown - dt);
     const random = this.random ?? Math.random;
     const bosses = this.enemies.filter(boss => boss.alive && boss.isBoss);
-    const finals = bosses.filter(boss => !boss.isImpostor);
-    const impostors = bosses.filter(boss => boss.isImpostor);
     bosses.forEach(boss => boss.prepareIndividualSummon(random));
-    this.spaceFinalSummons(finals);
-    this.spaceImpostorSummons(impostors);
-    const readyFinals = finals.filter(boss => boss.individualSummonReady)
+    this.spaceSummonSchedule(bosses);
+    if (this.summonCooldown > 1e-9) return;
+    const ready = bosses.filter(boss => boss.individualSummonReady)
       .sort((a, b) => (b.summonElapsed - b.individualSummonDelay) - (a.summonElapsed - a.individualSummonDelay));
-    // Nunca más de dos jefes normales en el mismo evento de generación.
-    const selectedFinals = readyFinals.slice(0, 2);
-    readyFinals.slice(2).forEach(boss => { boss.summonDeferred = 0.15; });
-    const readyImpostors = impostors.filter(boss => boss.individualSummonReady)
-      .sort((a, b) => (b.summonElapsed - b.individualSummonDelay) - (a.summonElapsed - a.individualSummonDelay));
-    // Exclusión estricta: un solo impostor por evento y 150 ms entre apariciones.
-    // El bloqueo también cubre frames consecutivos y relojes atrasados.
-    const selectedImpostors = this.impostorSummonCooldown <= 1e-9 ? readyImpostors.slice(0, 1) : [];
-    for (const boss of [...selectedFinals, ...selectedImpostors]) {
-      const index = boss.consumeIndividualSummon(random);
-      if (index !== null) {
-        this.spawnBossMinions(boss, [index], minionsPerSummonForWave(this.wave, boss.isImpostor));
-        if (boss.isImpostor) this.impostorSummonCooldown = IMPOSTOR_SUMMON_GAP;
-      }
-    }
-    // Planificar el desfase inmediatamente mantiene los intervalos dentro de sus rangos.
-    this.spaceFinalSummons(finals);
-    this.spaceImpostorSummons(impostors);
+    const boss = ready[0];
+    if (!boss) return;
+    const index = boss.consumeIndividualSummon(random);
+    if (index === null) return;
+    // Exclusión universal: un único secuaz, independientemente de su jefe u oleada.
+    this.spawnBossMinions(boss, [index], minionsPerSummonForWave(this.wave, boss.isImpostor));
+    this.summonCooldown = SUMMON_MIN_GAP + random() * (SUMMON_MAX_GAP - SUMMON_MIN_GAP);
+    this.spaceSummonSchedule(bosses);
   }
 
-  spaceFinalSummons(finals) {
-    for (const boss of finals) {
+  spaceSummonSchedule(bosses) {
+    for (const boss of bosses) {
       if (!boss.summonNeedsSpacing) continue;
-      const others = finals.filter(other => other !== boss && !other.summonNeedsSpacing);
+      const others = bosses.filter(other => other !== boss && !other.summonNeedsSpacing);
       const initial = boss.individualSummonDelay;
-      // Si tres relojes coinciden, mueve el último dentro de la ventana de 2–6 s.
+      const [min, max] = boss.summonWindow;
+      // Reserva huecos de 350 ms: margen máximo de 300 ms más tolerancia de frame.
+      const gap = SUMMON_MAX_GAP + 0.05;
       const candidates = [initial];
-      for (let step = 1; step <= 8; step++) candidates.push(initial + step * 0.15, initial - step * 0.15);
-      const delay = candidates.find(candidate => candidate >= 2 && candidate <= 6 &&
-        others.filter(other => Math.abs(candidate - boss.summonElapsed -
-          (other.individualSummonDelay - other.summonElapsed)) < 0.05).length < 2);
+      for (let step = 1; step <= bosses.length * 2; step++) candidates.push(initial + step * gap, initial - step * gap);
+      const delay = candidates.find(candidate => candidate >= min && candidate <= max &&
+        candidate > boss.summonElapsed && others.every(other => Math.abs(candidate - boss.summonElapsed -
+          (other.individualSummonDelay - other.summonElapsed)) >= gap - 1e-9));
       if (delay !== undefined) boss.individualSummonDelay = delay;
+      // Si no hay hueco, el bloqueo global garantiza igualmente el desfase real.
       boss.summonNeedsSpacing = false;
-    }
-  }
-
-  spaceImpostorSummons(impostors) {
-    if (impostors.length < 2) return;
-    const [first, second] = impostors;
-    const remaining = first.individualSummonDelay - first.summonElapsed;
-    const otherRemaining = second.individualSummonDelay - second.summonElapsed;
-    if (Math.abs(remaining - otherRemaining) >= IMPOSTOR_SUMMON_GAP - 1e-9) return;
-    // Desfase obligatorio en cada ciclo, sin superar la ventana de 2–5 s.
-    const delay = [second.summonElapsed + remaining + IMPOSTOR_SUMMON_GAP,
-      second.summonElapsed + remaining - IMPOSTOR_SUMMON_GAP]
-      .find(candidate => candidate >= 2 && candidate <= 5 && candidate > second.summonElapsed);
-    if (delay !== undefined) {
-      second.individualSummonDelay = delay;
-    } else {
-      // Si el segundo ya está junto al límite de 5 s, difiere el primero.
-      // Así el desfase no extiende la espera del reloj que tiene menos margen.
-      const firstDelay = [first.summonElapsed + otherRemaining + IMPOSTOR_SUMMON_GAP,
-        first.summonElapsed + otherRemaining - IMPOSTOR_SUMMON_GAP]
-        .find(candidate => candidate >= 2 && candidate <= 5 && candidate > first.summonElapsed);
-      if (firstDelay !== undefined) first.individualSummonDelay = firstDelay;
     }
   }
 
@@ -563,10 +581,10 @@ export class Game {
       minion.y = Math.min(minion.y, this.player.hitbox.y - minion.height - 90);
       this.minions.push(minion);
     }
-    this.bossNotice = spawnIndices.length === 1 ? (boss.isImpostor ? '¡EL IMPOSTOR INVOCA UN SECUAZ!' : '¡EL JEFE INVOCA UN SECUAZ!') :
+    const message = spawnIndices.length === 1 ? (boss.isImpostor ? '¡EL IMPOSTOR INVOCA UN SECUAZ!' : '¡EL JEFE INVOCA UN SECUAZ!') :
       '¡EL JEFE INVOCA ' + minionCount + ' SECUACES!';
-    this.revealTime = 3;
-    this.announce(this.bossNotice);
+    this.showBossNotice(message);
+    this.announce(message);
   }
 
   hitPlayer() {
@@ -623,8 +641,7 @@ export class Game {
     const result = enemy.takeHit(damage);
     if (result === 'defeated') this.defeatEnemy(enemy);
     if (result === 'reveal') {
-      this.revealTime = 3;
-      this.bossNotice = '¡IMPOSTOR REVELADO! DERROTA SU VERDADERA FORMA';
+      this.showBossNotice('¡IMPOSTOR REVELADO! DERROTA SU VERDADERA FORMA');
       this.burst(enemy, '#d63222');
       this.announce('¡Impostor revelado! Su verdadera forma tiene una nueva barra de vida.');
       this.syncAudio();
@@ -657,7 +674,7 @@ export class Game {
     if (this.state !== 'playing') return;
     this.recorder?.step(this.input);
     this.damageFlash = Math.max(0, this.damageFlash - dt);
-    this.revealTime = Math.max(0, this.revealTime - dt);
+    this.updateBossNotice(dt);
     this.player.update(dt, this.input, this.canvas.width);
     if (this.input.isDown('Space')) {
       const shots = this.player.shoot();

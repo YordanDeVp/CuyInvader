@@ -4,7 +4,6 @@ import { ENDGAME_WAVE, SUMMON_INTERVAL, MINION_POINTS, guardianCountForWave,
   LASER_BURST_DELAY, EXTREME_WAVE, minionsPerSummonForWave } from '../GameRules.js';
 
 const DESCENT_INTERVAL = 3;
-const MAX_IMPOSTOR_SUMMON_DELAY = 7;
 
 export class Enemy {
   constructor(slot, type, sprite, index, wave, layout, impostor = false) {
@@ -14,12 +13,12 @@ export class Enemy {
     this.isTrueForm = false;
     this.wave = wave;
     this.summonElapsed = 0;
-    this.impostorSummonDelay = null;
-    this.impostorSummonIndex = 0;
     this.individualSummonDelay = null;
     this.individualSummonIndex = 0;
-    this.summonDeferred = 0;
+    this.individualSummonStarted = false;
     this.summonNeedsSpacing = false;
+    this.impostorLaserElapsed = 0;
+    this.impostorLaserDelay = null;
     this.sprite = sprite;
     this.index = index;
     this.alive = true;
@@ -163,43 +162,29 @@ export class Enemy {
     this.flash = Math.max(0, this.flash - dt);
     this.revealTime = Math.max(0, this.revealTime - dt);
     if (this.alive && this.isBoss && this.wave >= ENDGAME_WAVE) this.summonElapsed += dt;
-    this.summonDeferred = Math.max(0, this.summonDeferred - dt);
   }
 
-  // Desde la oleada 5 cada jefe conserva su reloj de invocación independiente.
-  consumeSummon() {
-    if (!this.alive || !this.isBoss || this.wave < ENDGAME_WAVE || this.summonElapsed + 1e-9 < SUMMON_INTERVAL) return false;
-    this.summonElapsed = Math.max(0, this.summonElapsed - SUMMON_INTERVAL);
-    return true;
+  nextSummonDelay(random, first = false) {
+    // Cada secuaz reinicia su reloj; nunca recuperamos retrasos con tandas.
+    if (this.wave >= EXTREME_WAVE) return 2 + random() * (this.isImpostor ? 3 : 4);
+    const count = minionsPerSummonForWave(this.wave, this.isImpostor);
+    return (first ? SUMMON_INTERVAL : 0) + SUMMON_INTERVAL / count * (0.6 + random() * 0.8);
   }
 
-  consumeImpostorSummon(count, random) {
-    if (!this.alive || !this.isBoss || !this.isImpostor || this.wave < ENDGAME_WAVE) return null;
-    // Distribuye la cadencia anterior (2 o 4 por 3 s) en intervalos individuales.
-    // El primer secuaz aparece después del aviso temporal original de 3 s.
-    const nextDelay = () => Math.min(MAX_IMPOSTOR_SUMMON_DELAY,
-      SUMMON_INTERVAL / count * (0.6 + random() * 0.8));
-    if (this.impostorSummonDelay === null) {
-      this.impostorSummonDelay = Math.min(MAX_IMPOSTOR_SUMMON_DELAY, SUMMON_INTERVAL + nextDelay());
-    }
-    if (this.summonElapsed + 1e-9 < this.impostorSummonDelay) return null;
-    const index = this.impostorSummonIndex;
-    this.impostorSummonIndex = (index + 1) % count;
-    // No recupera retrasos con múltiples spawns: cada aparición empieza un reloj nuevo.
-    this.summonElapsed = 0;
-    this.impostorSummonDelay = nextDelay();
-    return index;
+  get summonWindow() {
+    return this.wave >= EXTREME_WAVE ? [2, this.isImpostor ? 5 : 6] :
+      [this.individualSummonStarted ? 0.9 : 3, 7];
   }
 
   prepareIndividualSummon(random) {
-    if (!this.alive || !this.isBoss || this.wave < EXTREME_WAVE || this.individualSummonDelay !== null) return;
-    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 3 : 4);
+    if (!this.alive || !this.isBoss || this.wave < ENDGAME_WAVE || this.individualSummonDelay !== null) return;
+    this.individualSummonDelay = this.nextSummonDelay(random, true);
     this.summonNeedsSpacing = true;
   }
 
   get individualSummonReady() {
-    return this.alive && this.isBoss && this.wave >= EXTREME_WAVE &&
-      this.individualSummonDelay !== null && this.summonDeferred <= 1e-9 &&
+    return this.alive && this.isBoss && this.wave >= ENDGAME_WAVE &&
+      this.individualSummonDelay !== null &&
       this.summonElapsed + 1e-9 >= this.individualSummonDelay;
   }
 
@@ -208,8 +193,9 @@ export class Enemy {
     const count = minionsPerSummonForWave(this.wave, this.isImpostor);
     const index = this.individualSummonIndex;
     this.individualSummonIndex = (index + 1) % count;
+    this.individualSummonStarted = true;
     this.summonElapsed = 0;
-    this.individualSummonDelay = 2 + random() * (this.isImpostor ? 3 : 4);
+    this.individualSummonDelay = this.nextSummonDelay(random);
     this.summonNeedsSpacing = true;
     return index;
   }
